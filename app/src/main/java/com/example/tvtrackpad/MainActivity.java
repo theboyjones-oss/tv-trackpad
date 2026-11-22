@@ -88,6 +88,25 @@ public class MainActivity extends Activity {
     private long connectedAt;
     private static final int MAX_RETRIES = 4;
 
+    // ---- diagnostic log (Settings › Share log)
+    private final java.util.ArrayDeque<String> logBuf = new java.util.ArrayDeque<>();
+    private final long t0 = SystemClock.elapsedRealtime();
+    private synchronized void log(String m) {
+        long t = SystemClock.elapsedRealtime() - t0;
+        logBuf.addLast(String.format(java.util.Locale.UK, "%7.2fs  %s", t / 1000.0, m));
+        while (logBuf.size() > 400) logBuf.removeFirst();
+    }
+    private synchronized String logText() {
+        StringBuilder b = new StringBuilder("TV Trackpad log – ")
+            .append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
+            .append(", Android ").append(Build.VERSION.RELEASE).append(" (SDK ").append(Build.VERSION.SDK_INT).append(")\n");
+        for (String l : logBuf) b.append(l).append('\n');
+        return b.toString();
+    }
+    private static String st(int s) {
+        switch (s) { case 0: return "DISCONNECTED"; case 1: return "CONNECTING"; case 2: return "CONNECTED"; case 3: return "DISCONNECTING"; default: return "state " + s; }
+    }
+
     private final List<BluetoothDevice> scanDevices = new ArrayList<>();
     private ArrayAdapter<String> scanList;
     private AlertDialog scanDialog;
@@ -134,6 +153,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        log("activity resume");
         if (missingPermissions().length == 0) startHid();
     }
 
@@ -145,7 +165,14 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onPause() { log("activity pause"); super.onPause(); }
+
+    @Override
+    protected void onStop() { log("activity stop"); super.onStop(); }
+
+    @Override
     protected void onDestroy() {
+        log("activity destroy");
         try { unregisterReceiver(receiver); } catch (Exception ignored) {}
         stopService(new Intent(this, KeepAliveService.class));
         if (hid != null) {
@@ -184,15 +211,18 @@ public class MainActivity extends Activity {
         boolean ok = adapter.getProfileProxy(this, new BluetoothProfile.ServiceListener() {
             @Override public void onServiceConnected(int profile, BluetoothProfile proxy) {
                 hid = (BluetoothHidDevice) proxy;
+                log("HID proxy connected");
                 BluetoothHidDeviceAppSdpSettings sdp = new BluetoothHidDeviceAppSdpSettings(
                     "TV Trackpad", "Phone trackpad and keyboard", "TV Trackpad",
                     BluetoothHidDevice.SUBCLASS1_COMBO, DESCRIPTOR);
                 BluetoothHidDeviceAppQosSettings qos = new BluetoothHidDeviceAppQosSettings(
                     BluetoothHidDeviceAppQosSettings.SERVICE_BEST_EFFORT, 800, 9, 0, 11250,
                     BluetoothHidDeviceAppQosSettings.MAX);
-                hid.registerApp(sdp, null, qos, exec, callback);
+                boolean r = hid.registerApp(sdp, null, qos, exec, callback);
+                log("registerApp -> " + r);
             }
             @Override public void onServiceDisconnected(int profile) {
+                log("HID proxy DISCONNECTED");
                 hid = null; host = null; proxyRequested = false;
                 status("Bluetooth service stopped", false);
             }
@@ -202,6 +232,7 @@ public class MainActivity extends Activity {
 
     private final BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
         @Override public void onAppStatusChanged(BluetoothDevice plugged, boolean registered) {
+            log("appStatus registered=" + registered + " plugged=" + (plugged == null ? "none" : name(plugged)));
             if (!registered) { status("Not registered – reopen the app", false); return; }
             status("Ready – tap Connect", false);
             BluetoothDevice target = plugged;
@@ -217,6 +248,9 @@ public class MainActivity extends Activity {
         }
 
         @Override public void onConnectionStateChanged(BluetoothDevice device, int state) {
+            log("conn " + st(state) + " " + name(device) + " [" + device.getAddress() + "]"
+                + (state == 0 && connectedAt > 0 ? " after " + (SystemClock.elapsedRealtime() - connectedAt) + "ms" : "")
+                + " userDisc=" + userDisconnect + " retries=" + retries);
             if (state == BluetoothProfile.STATE_CONNECTED) {
                 host = device;
                 wanted = device;
@@ -245,6 +279,7 @@ public class MainActivity extends Activity {
         }
 
         @Override public void onGetReport(BluetoothDevice device, byte type, byte id, int bufferSize) {
+            log("GET_REPORT type=" + type + " id=" + id + " buf=" + bufferSize);
             if (type == BluetoothHidDevice.REPORT_TYPE_INPUT && (id == ID_KEYBOARD || id == ID_MOUSE || id == ID_CONSUMER)) {
                 int len = id == ID_KEYBOARD ? 8 : id == ID_MOUSE ? 5 : 2;
                 hid.replyReport(device, type, id, new byte[len]);
@@ -256,15 +291,19 @@ public class MainActivity extends Activity {
         }
 
         @Override public void onSetReport(BluetoothDevice device, byte type, byte id, byte[] data) {
+            log("SET_REPORT type=" + type + " id=" + id + " len=" + (data == null ? 0 : data.length));
             hid.reportError(device, BluetoothHidDevice.ERROR_RSP_SUCCESS);
         }
 
-        @Override public void onSetProtocol(BluetoothDevice device, byte protocol) { /* report mode only; accept */ }
+        @Override public void onSetProtocol(BluetoothDevice device, byte protocol) { log("SET_PROTOCOL " + protocol); }
 
-        @Override public void onInterruptData(BluetoothDevice device, byte reportId, byte[] data) { /* keyboard LEDs – ignore */ }
+        @Override public void onVirtualCableUnplug(BluetoothDevice device) { log("VIRTUAL CABLE UNPLUG from " + name(device)); }
+
+        @Override public void onInterruptData(BluetoothDevice device, byte reportId, byte[] data) { log("interrupt data id=" + reportId); }
     };
 
     private void connectTo(BluetoothDevice d) {
+        log("user picked " + name(d) + " bond=" + d.getBondState() + " host=" + (host == null ? "none" : name(host)));
         if (hid == null) { status("Bluetooth not ready yet", false); return; }
         if (adapter.isDiscovering()) adapter.cancelDiscovery();   // scanning makes new links flaky
         if (d.equals(host)) { status("Connected to " + name(d), true); return; }
@@ -342,6 +381,7 @@ public class MainActivity extends Activity {
                 case BluetoothDevice.ACTION_BOND_STATE_CHANGED: {
                     BluetoothDevice d = i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                     int st = i.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, -1);
+                    if (d != null) log("bond " + name(d) + " -> " + st);
                     if (d != null && d.equals(pendingBond)) {
                         if (st == BluetoothDevice.BOND_BONDED) { pendingBond = null; connectTo(d); }
                         else if (st == BluetoothDevice.BOND_NONE) { pendingBond = null; status("Pairing failed – try again", false); }
@@ -349,6 +389,7 @@ public class MainActivity extends Activity {
                     break;
                 }
                 case BluetoothAdapter.ACTION_STATE_CHANGED:
+                    log("adapter state " + i.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1));
                     if (i.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) == BluetoothAdapter.STATE_ON
                             && missingPermissions().length == 0) startHid();
                     break;
@@ -360,7 +401,7 @@ public class MainActivity extends Activity {
 
     private void send(int id, byte[] data) {
         BluetoothDevice h = host;
-        if (hid != null && h != null) hid.sendReport(h, id, data);
+        if (hid != null && h != null && !hid.sendReport(h, id, data)) log("sendReport id=" + id + " FAILED");
     }
 
     private static int clamp(int v) { return Math.max(-127, Math.min(127, v)); }
@@ -391,8 +432,19 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void connect() { runOnUiThread(MainActivity.this::showPicker); }
 
         @JavascriptInterface public void disconnect() {
+            log("user tapped Disconnect");
             userDisconnect = true; wanted = null;
             if (hid != null && host != null) hid.disconnect(host);
+        }
+
+        @JavascriptInterface public void shareLog() {
+            String text = logText();
+            runOnUiThread(() -> {
+                Intent i = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_SUBJECT, "TV Trackpad log")
+                    .putExtra(Intent.EXTRA_TEXT, text);
+                startActivity(Intent.createChooser(i, "Share log"));
+            });
         }
 
         @JavascriptInterface public void ready() { status(lastStatus, lastConnected); }
@@ -424,6 +476,7 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------ helpers
 
     private void status(String text, boolean connected) {
+        log("status: " + text);
         lastStatus = text; lastConnected = connected;
         runOnUiThread(() -> web.evaluateJavascript(
             "window.onHidStatus&&onHidStatus(" + JSONObject.quote(text) + "," + connected + ")", null));

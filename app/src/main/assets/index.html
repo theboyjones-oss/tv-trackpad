@@ -169,6 +169,7 @@
       <select id="awakeFor"><option value="15">15 min idle</option><option value="30">30 min idle</option><option value="60">1 hour idle</option><option value="120">2 hours idle</option><option value="0">Always</option></select></div>
     <div class="sheet-actions">
       <button id="disconnectBtn">Disconnect</button>
+      <button id="logBtn">Share log</button>
       <button id="closeSheet" style="background:var(--accent);color:#fff">Done</button>
     </div>
   </div>
@@ -225,6 +226,7 @@
   else if (bridge.ready) bridge.ready();
 
   $('connectBtn').onclick = () => bridge ? bridge.connect() : toast('Bluetooth only works inside the Android app');
+  $('logBtn').onclick = () => { if (bridge && bridge.shareLog) bridge.shareLog(); else toast('Log only works inside the Android app'); };
   $('disconnectBtn').onclick = () => { if (bridge) bridge.disconnect(); $('sheet').classList.remove('show'); };
   $('settingsBtn').onclick = () => { setDim(false); $('sheet').classList.add('show'); };
   $('closeSheet').onclick = () => $('sheet').classList.remove('show');
