@@ -42,6 +42,7 @@ public class CursorService extends Service {
     static final String TAG = "TVTrackpadCursor";
     static final int PORT = 38999;
     private static final long AUTO_HIDE_MS = 30000;
+    private static final int TIP_GAP = 2;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private WindowManager wm;
@@ -105,8 +106,11 @@ public class CursorService extends Service {
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.LEFT;
-        lp.x = sw / 2;
-        lp.y = sh / 2;
+        lp.x = sw / 2 + TIP_GAP;
+        lp.y = sh / 2 + TIP_GAP;
+        // Android 12+ blocks taps that land on another app's overlay unless it is at most 80% opaque.
+        // The window sits just beside the click point anyway (TIP_GAP); this is a second safeguard.
+        lp.alpha = 0.8f;
         v.setVisibility(View.GONE);
         try {
             wm.addView(v, lp);
@@ -160,8 +164,9 @@ public class CursorService extends Service {
         String[] p = cmd.split(" ");
         try {
             if (p[0].equals("A")) {
-                lp.x = Integer.parseInt(p[1]);
-                lp.y = Integer.parseInt(p[2]);
+                // keep the click point itself outside the overlay window, or the TV drops the tap
+                lp.x = Integer.parseInt(p[1]) + TIP_GAP;
+                lp.y = Integer.parseInt(p[2]) + TIP_GAP;
                 show(true);
                 if (view != null) wm.updateViewLayout(view, lp);
                 ui.removeCallbacks(autoHide);
@@ -207,7 +212,7 @@ public class CursorService extends Service {
         protected void onSizeChanged(int w, int h, int ow, int oh) {
             float s = Math.min(w, h) * 0.9f;
             edge.setStrokeWidth(Math.max(1.5f, s / 22f));
-            float o = edge.getStrokeWidth();
+            float o = edge.getStrokeWidth() / 2f;
             arrow.reset();
             arrow.moveTo(o, o);
             arrow.lineTo(o, s * 0.82f);

@@ -54,7 +54,7 @@ public class MainActivity extends Activity {
 
     // TV-side cursor helper (tvhelper module, bundled as assets/tvhelper.apk)
     private static final String HELPER_PKG = "com.example.tvtrackpad.tvhelper";
-    private static final int HELPER_VERSION = 3, CURSOR_PORT = 38999;
+    private static final int HELPER_VERSION = 4, CURSOR_PORT = 38999;
     private volatile AdbConnection.Stream cursor;
     private final LinkedBlockingQueue<String> mouseCmds = new LinkedBlockingQueue<>();
     private Thread mouseThread;
@@ -412,9 +412,11 @@ public class MainActivity extends Activity {
                         case "H":
                             send(s, "H");
                             break;
-                        case "C":
-                            cmd("input tap " + Math.round(cx) + " " + Math.round(cy));
+                        case "C": {
+                            String r = new String(conn.exec("input tap " + Math.round(cx) + " " + Math.round(cy))).trim();
+                            log("click " + Math.round(cx) + "," + Math.round(cy) + (r.isEmpty() ? "" : " -> " + r));
                             break;
+                        }
                         case "L":
                             x = Math.round(cx); y = Math.round(cy);
                             cmd("input swipe " + x + " " + y + " " + x + " " + y + " 900");
