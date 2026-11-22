@@ -436,8 +436,10 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void setDim(boolean on, double level) {
             runOnUiThread(() -> {
                 WindowManager.LayoutParams lp = getWindow().getAttributes();
-                lp.screenBrightness = on ? (float) Math.max(0.01, Math.min(1.0, level))
-                                         : WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+                // dim relative to the phone's current brightness, so it always ends up darker
+                float target = (float) Math.max(0.01, Math.min(1.0, systemBrightness() * level));
+                lp.screenBrightness = on ? target : WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+                log("dim " + on + (on ? " -> " + target : ""));
                 getWindow().setAttributes(lp);
             });
         }
@@ -450,6 +452,17 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface public void setShowOnLock(boolean on) { runOnUiThread(() -> setShowWhenLocked(on)); }
+    }
+
+    /** Phone's normal brightness as 0..1 (falls back to 0.5 if the system won't say). */
+    private float systemBrightness() {
+        try {
+            int v = android.provider.Settings.System.getInt(getContentResolver(),
+                android.provider.Settings.System.SCREEN_BRIGHTNESS);
+            return Math.max(0.02f, Math.min(1f, v / 255f));
+        } catch (Exception e) {
+            return 0.5f;
+        }
     }
 
     // ------------------------------------------------------------ status + log
