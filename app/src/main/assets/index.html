@@ -29,24 +29,14 @@
   #connectBtn{background:var(--accent);color:#fff;font-weight:600}
   .icon-btn{padding:9px 10px;display:grid;place-items:center}
 
-  .modes{display:flex;gap:6px;margin-bottom:8px}
-  .modes button{flex:1;height:38px;font-size:13px;color:var(--dim)}
-  .modes button.active{background:var(--accent);color:#fff;font-weight:600}
 
   #pad{flex:1;min-height:160px;position:relative;border-radius:18px;
     background:radial-gradient(circle at 50% 40%,#262b33,#1b1f25);
     border:1px solid var(--line);touch-action:none;overflow:hidden}
   #pad::before{content:"";position:absolute;inset:0;opacity:.35;
     background-image:radial-gradient(#4a525e 1px,transparent 1px);background-size:22px 22px}
-  #pad.screen{background:#000}
-  #pad.screen::before{display:none}
-  #screen{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:none;pointer-events:none}
-  #pad.screen #screen{display:block}
   #hint{position:absolute;left:0;right:0;bottom:14px;text-align:center;color:var(--dim);
     font-size:12px;pointer-events:none;padding:0 14px;transition:opacity .4s}
-  #fps{position:absolute;right:10px;top:8px;font-size:11px;color:var(--dim);display:none;pointer-events:none;
-    background:#000a;padding:2px 6px;border-radius:6px}
-  #pad.screen #fps{display:block}
   #touchDot{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;
     background:rgba(79,156,255,.18);border:1px solid rgba(79,156,255,.5);pointer-events:none;
     opacity:0;transition:opacity .15s}
@@ -90,11 +80,10 @@
   body{transition:transform 1.5s}
   button,#pad,#statusText{transition:background .6s,color .6s,border-color .6s,box-shadow .6s}
   body.dim button{background:transparent;box-shadow:inset 0 0 0 1px #3a4049;color:#9aa1ab}
-  body.dim #connectBtn,body.dim .dpad .ok,body.dim .modes button.active{background:transparent;color:#6fb0ff;font-weight:600}
-  body.dim #pad:not(.screen){background:#000;border-color:#2a2f36}
+  body.dim #connectBtn,body.dim .dpad .ok{background:transparent;color:#6fb0ff;font-weight:600}
+  body.dim #pad{background:#000;border-color:#2a2f36}
   body.dim #pad::before{opacity:.2}
   body.dim #statusText{color:#8b929c}
-  body.dim #screen{opacity:.6}
   body.dim .dot,body.dim .dot.on{box-shadow:none;opacity:.8}
   body.dim .row button.active{background:transparent;color:#6fb0ff;box-shadow:inset 0 0 0 1px #4f9cff}
 
@@ -114,14 +103,7 @@
   </button>
 </header>
 
-<div class="modes">
-  <button id="modeRemote" class="active">Swipe remote</button>
-  <button id="modeScreen">TV screen (tap anywhere)</button>
-</div>
-
 <div id="pad">
-  <img id="screen" alt="">
-  <div id="fps"></div>
   <div id="touchDot"></div>
   <div id="hint">Swipe to move · Tap = OK · Long-press = hold OK · Two-finger tap = Back</div>
 </div>
@@ -199,7 +181,7 @@
 
   /* ---------- settings ---------- */
   const defaults = {step:45, haptic:true, onLock:true, dimAfter:60, dimLevel:0.3, dimUsable:true, awakeFor:60,
-                    kbdOpen:true, screenMode:false};   // layout: swipe remote + keyboard panel open
+                    kbdOpen:true};   // layout: swipe remote + keyboard panel open
   let cfg = {...defaults};
   try { Object.assign(cfg, JSON.parse(localStorage.getItem('tvpad-wifi') || '{}')); } catch(e){}
   const save = () => { try { localStorage.setItem('tvpad-wifi', JSON.stringify(cfg)); } catch(e){} };
@@ -229,7 +211,6 @@
     $('statusText').textContent = text;
     $('dot').classList.toggle('on', connected);
     $('connectBtn').textContent = connected ? 'Switch' : 'Connect';
-    if (connected && screenOn) nextFrame();
   };
   if (PREVIEW) onTvStatus('Preview mode – run inside the Android app to control the TV', false);
   else if (bridge.ready) bridge.ready();
@@ -243,54 +224,7 @@
 
   document.querySelectorAll('[data-kc]').forEach(b => b.onclick = () => { key(+b.dataset.kc); buzz(); });
 
-  /* ---------- modes ---------- */
-  const pad = $('pad'), dot = $('touchDot'), img = $('screen');
-  let screenOn = false;
-  function setMode(screen){
-    screenOn = screen;
-    pad.classList.toggle('screen', screen);
-    $('modeScreen').classList.toggle('active', screen);
-    $('modeRemote').classList.toggle('active', !screen);
-    $('hint').textContent = screen
-      ? 'Tap = tap on the TV · Drag = swipe · Long-press = press and hold'
-      : 'Swipe to move · Tap = OK · Long-press = hold OK · Two-finger tap = Back';
-    $('hint').style.opacity = 1;
-    if (screen) nextFrame();
-  }
-  $('modeRemote').onclick = () => { cfg.screenMode = false; save(); setMode(false); };
-  $('modeScreen').onclick = () => { cfg.screenMode = true; save(); setMode(true); };
-
-  /* ---------- live screen: each image request is one fresh screenshot from the TV ---------- */
-  let loading = false, frames = 0, fpsT = performance.now();
-  function nextFrame(){
-    if (!screenOn || loading || PREVIEW) return;
-    loading = true;
-    img.src = 'https://tv.screen/frame?' + Date.now();
-  }
-  img.onload = () => {
-    loading = false; frames++;
-    const now = performance.now();
-    if (now - fpsT > 2000){ $('fps').textContent = (frames * 1000 / (now - fpsT)).toFixed(1) + ' fps'; frames = 0; fpsT = now; }
-    if (screenOn) requestAnimationFrame(nextFrame);
-  };
-  img.onerror = () => {
-    loading = false;
-    $('fps').textContent = connected ? 'waiting for TV…' : 'not connected';
-    if (screenOn) setTimeout(nextFrame, 1000);
-  };
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) nextFrame(); });
-
-  // phone point -> TV pixel, using where the picture actually sits inside the pad
-  function toTv(cx, cy){
-    const r = pad.getBoundingClientRect();
-    const iw = img.naturalWidth, ih = img.naturalHeight;
-    if (!iw || !ih) return null;
-    const s = Math.min(r.width / iw, r.height / ih);
-    const w = iw * s, h = ih * s, ox = r.left + (r.width - w) / 2, oy = r.top + (r.height - h) / 2;
-    const x = (cx - ox) / s, y = (cy - oy) / s;
-    if (x < 0 || y < 0 || x > iw || y > ih) return null;
-    return [Math.round(x), Math.round(y)];
-  }
+  const pad = $('pad'), dot = $('touchDot');
 
   /* ---------- touch handling ---------- */
   const pts = new Map();
@@ -312,8 +246,7 @@
       holdT = setTimeout(() => {
         if (moved > TAP_MOVE || pts.size !== 1) return;
         held = true; buzz();
-        if (screenOn){ const p = toTv(startX, startY); if (p && bridge) bridge.swipe(p[0], p[1], p[0], p[1], 800); }
-        else if (has('longKey')) bridge.longKey(KEY.OK);
+        if (has('longKey')) bridge.longKey(KEY.OK);
       }, HOLD_MS);
     } else {
       maxPts = Math.max(maxPts, pts.size);
@@ -330,7 +263,7 @@
     lastX = e.clientX; lastY = e.clientY;
     const r = pad.getBoundingClientRect();
     dot.style.left = (e.clientX - r.left)+'px'; dot.style.top = (e.clientY - r.top)+'px';
-    if (screenOn || held) return;               // screen mode sends one swipe when the finger lifts
+    if (held) return;
     // swipe remote: every `step` px of travel = one arrow press
     accX += dx; accY += dy;
     while (Math.abs(accX) >= cfg.step || Math.abs(accY) >= cfg.step){
@@ -350,17 +283,6 @@
     const dur = performance.now() - downAt, quick = dur < TAP_MS;
     if (maxPts >= 2){
       if (quick && moved < TAP_MOVE * maxPts){ key(KEY.BACK); buzz(); }
-      return;
-    }
-    if (screenOn){
-      const a = toTv(startX, startY);
-      if (!a){ toast(connected ? 'Wait for the TV picture' : 'Not connected'); return; }
-      if (moved < TAP_MOVE){ if (bridge) bridge.tap(a[0], a[1]); else toast('Tap ' + a); }
-      else {
-        const b = toTv(lastX, lastY) || a;
-        if (bridge) bridge.swipe(a[0], a[1], b[0], b[1], Math.round(dur));
-      }
-      buzz();
       return;
     }
     if (quick && moved < TAP_MOVE){ key(KEY.OK); buzz(); }
@@ -406,7 +328,6 @@
     showKbd(show, show);
   };
   showKbd(cfg.kbdOpen, false);          // open on start, without popping up the phone keyboard
-  setMode(cfg.screenMode);
 
   /* ---------- lock screen, dim mode, screen timeout ---------- */
   let dimmed = false, awake = true, swallowClick = false, idleT, sleepT;

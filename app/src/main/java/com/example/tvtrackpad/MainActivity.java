@@ -14,18 +14,14 @@ import android.os.SystemClock;
 import android.text.InputType;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 
 import org.json.JSONObject;
 
-import java.io.ByteArrayInputStream;
 import java.net.ConnectException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -37,7 +33,6 @@ import java.net.SocketTimeoutException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -50,13 +45,12 @@ import java.util.concurrent.TimeUnit;
 /**
  * Wi-Fi remote for Google TV / Android TV. Talks to the TV's own debugging service
  * (ADB over the network, port 5555) to press keys, tap and swipe anywhere, type text,
- * and grab screenshots for the live screen view. The UI is assets/index.html.
+ * using the swipe-remote UI. The UI is assets/index.html.
  */
 @SuppressLint("SetJavaScriptEnabled")
 public class MainActivity extends Activity {
 
     private static final int ADB_PORT = 5555;
-    private static final String FRAME_HOST = "tv.screen";
 
     private WebView web;
     private SharedPreferences prefs;
@@ -91,13 +85,6 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         web.addJavascriptInterface(new Bridge(), "Android");
-        web.setWebViewClient(new WebViewClient() {
-            @Override
-            public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
-                if (FRAME_HOST.equals(r.getUrl().getHost())) return frame();
-                return super.shouldInterceptRequest(v, r);
-            }
-        });
         web.loadUrl("file:///android_asset/index.html");
         setContentView(web);
 
@@ -363,42 +350,12 @@ public class MainActivity extends Activity {
 
     private static String shellQuote(String s) { return "'" + s.replace("'", "'\\''") + "'"; }
 
-    // ------------------------------------------------------------ live screen
-
-    /** Served to the page as https://tv.screen/frame?… – one fresh screenshot per request. */
-    private WebResourceResponse frame() {
-        HashMap<String, String> h = new HashMap<>();
-        h.put("Cache-Control", "no-store");
-        AdbConnection c = conn;
-        if (c != null) {
-            try {
-                long t = SystemClock.elapsedRealtime();
-                byte[] png = c.exec("screencap -p");
-                if (png.length > 8 && (png[0] & 0xFF) == 0x89) {
-                    log("frame " + png.length / 1024 + "KB in " + (SystemClock.elapsedRealtime() - t) + "ms");
-                    return new WebResourceResponse("image/png", null, 200, "OK", h, new ByteArrayInputStream(png));
-                }
-                log("frame not a PNG (" + png.length + " bytes): "
-                    + new String(png, 0, Math.min(png.length, 120)).trim());
-            } catch (Exception e) {
-                log("frame failed: " + e);
-            }
-        }
-        return new WebResourceResponse("text/plain", "utf-8", 503, "No screen", h, new ByteArrayInputStream(new byte[0]));
-    }
-
     // ------------------------------------------------------------ JavaScript bridge
 
     private class Bridge {
         @JavascriptInterface public void key(int keycode) { cmd("K:" + keycode); }
 
         @JavascriptInterface public void longKey(int keycode) { cmd("input keyevent --longpress " + keycode); }
-
-        @JavascriptInterface public void tap(int x, int y) { cmd("input tap " + x + " " + y); }
-
-        @JavascriptInterface public void swipe(int x1, int y1, int x2, int y2, int ms) {
-            cmd("input swipe " + x1 + " " + y1 + " " + x2 + " " + y2 + " " + Math.max(50, Math.min(3000, ms)));
-        }
 
         @JavascriptInterface public void text(String t) {
             if (t == null || t.isEmpty()) return;

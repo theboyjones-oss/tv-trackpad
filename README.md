@@ -1,8 +1,8 @@
 # TV Trackpad
 
 Turns an Android phone into a Wi-Fi remote for Google TV / Android TV. It talks to the TV's
-built-in debugging service (ADB over the network, port 5555), so it can press any button,
-tap and swipe anywhere on screen, type text, and show a live picture of the TV screen.
+built-in debugging service (ADB over the network, port 5555), so it can press any button
+and type text.
 
 **Install:** open
 https://github.com/theboyjones-oss/tv-trackpad/releases/latest/download/TV-Trackpad.apk
@@ -20,10 +20,9 @@ and it installs over the previous version.
 
 ## Using it
 - **Swipe remote:** swipe = arrow keys, tap = OK, long-press = hold OK, two-finger tap = Back.
-- **TV screen:** live screenshots of the TV; tap = tap, drag = swipe, long-press = press and hold.
 - Buttons: Back, Home, Play/Pause, volume, mute, keyboard, Power, Settings, Search, Apps, Menu.
 
 ## Code
 - UI: `app/src/main/assets/index.html`
-- Connection, commands, screen frames: `MainActivity.java`
+- Connection and commands: `MainActivity.java`
 - ADB protocol client: `AdbConnection.java`, key handling: `AdbKeys.java`
