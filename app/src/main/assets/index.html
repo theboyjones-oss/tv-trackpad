@@ -39,6 +39,15 @@
   body:has(#kbd.show) #kbd{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:center}
   #hint{position:absolute;left:0;right:0;bottom:14px;text-align:center;color:var(--dim);
     font-size:12px;pointer-events:none;padding:0 14px;transition:opacity .4s}
+  /* scroll strip on the right edge of the trackpad: drag like a scroll bar */
+  #scroll{position:absolute;top:8px;bottom:8px;right:8px;width:44px;border-radius:14px;
+    background:#0b0d10;border:1px solid var(--line);touch-action:none;z-index:2;
+    display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:6px 0;color:var(--dim)}
+  #scroll svg{width:20px;height:20px;opacity:.8;pointer-events:none}
+  #scroll .grip{width:4px;flex:1;margin:6px 0;border-radius:2px;pointer-events:none;
+    background:repeating-linear-gradient(#2a3038 0 6px,transparent 6px 12px)}
+  #scroll.on{background:#141920;border-color:var(--accent)}
+  #hint{right:56px}
   #touchDot{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;
     background:rgba(79,156,255,.18);border:1px solid rgba(79,156,255,.5);pointer-events:none;
     opacity:0;transition:opacity .15s}
@@ -107,8 +116,11 @@
 </header>
 
 <div id="pad">
+  <div id="scroll" aria-label="Scroll">
+    <svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg><div class="grip"></div><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+  </div>
   <div id="touchDot"></div>
-  <div id="hint">Tap to show the cursor · Slide to move · Tap = click · Hold = long-press · Two fingers = scroll · Two-finger tap = Back</div>
+  <div id="hint">Tap to show the cursor · Slide to move · Tap = click · Hold = long-press · Right strip or two fingers = scroll · Two-finger tap = Back</div>
 </div>
 
 <div id="kbd">
@@ -157,6 +169,7 @@
   <div class="sheet-in">
     <h2>Settings</h2>
     <div class="set"><label>Cursor speed</label><input type="range" id="speed" min="0.5" max="4" step="0.1"></div>
+    <div class="set"><label>Scroll speed<small>For the scroll strip</small></label><input type="range" id="scrollSp" min="0.3" max="3" step="0.1"></div>
     <div class="set"><label>Vibrate on press</label><input type="checkbox" id="haptic"></div>
     <div class="set"><label>Show over lock screen<small>Use the remote without unlocking</small></label><input type="checkbox" id="onLock"></div>
     <div class="set"><label>Dim when idle<small>Darker screen to save battery</small></label>
@@ -183,13 +196,13 @@
   const has = fn => bridge && typeof bridge[fn] === 'function';
 
   /* ---------- settings ---------- */
-  const defaults = {speed:1.6, haptic:true, onLock:true, dimAfter:60, dimLevel:0.3, dimUsable:true, awakeFor:60,
+  const defaults = {speed:1.6, scrollSp:1, haptic:true, onLock:true, dimAfter:60, dimLevel:0.3, dimUsable:true, awakeFor:60,
                     kbdOpen:true};   // layout: swipe remote + keyboard panel open
   let cfg = {...defaults};
   try { Object.assign(cfg, JSON.parse(localStorage.getItem('tvpad-wifi') || '{}')); } catch(e){}
   const save = () => { try { localStorage.setItem('tvpad-wifi', JSON.stringify(cfg)); } catch(e){} };
   const onCfg = {};
-  ['speed','dimLevel','dimAfter','awakeFor'].forEach(k => {
+  ['speed','scrollSp','dimLevel','dimAfter','awakeFor'].forEach(k => {
     $(k).value = cfg[k];
     $(k).oninput = $(k).onchange = e => { cfg[k] = +e.target.value; save(); onCfg[k] && onCfg[k](); };
   });
@@ -285,7 +298,7 @@
       // two-finger drag scrolls the page under the cursor (each finger reports, so halve)
       scX += dx * 0.5; scY += dy * 0.5;
       if (Math.abs(scX) >= SCROLL_STEP || Math.abs(scY) >= SCROLL_STEP){
-        if (cursorOn){ mouse('S ' + Math.round(scX * 6) + ' ' + Math.round(scY * 6)); cursorAlive(); }
+        queueScroll(scX * 6, scY * 6);   // natural: content follows the fingers
         scX = scY = 0;
       }
     }
@@ -309,6 +322,55 @@
       else { mouse('C'); cursorAlive(); }
     }
   }
+  /* ---------- scrolling (shared by the strip and two-finger drags) ---------- */
+  // Each scroll becomes one swipe on the TV; they're batched so a long drag doesn't pile up.
+  let pendX = 0, pendY = 0, scrollT = null, lastScroll = 0;
+  const SCROLL_GAP = 300;                       // ms between swipes, roughly how long one takes on the TV
+  function queueScroll(dx, dy){
+    pendX += dx; pendY += dy;
+    if (!scrollT) scrollT = setTimeout(flushScroll, Math.max(0, lastScroll + SCROLL_GAP - performance.now()));
+  }
+  function flushScroll(){
+    scrollT = null;
+    const cap = 700, x = Math.max(-cap, Math.min(cap, pendX)), y = Math.max(-cap, Math.min(cap, pendY));
+    pendX -= x; pendY -= y;
+    if (Math.abs(x) >= 4 || Math.abs(y) >= 4){
+      mouse('S ' + Math.round(x) + ' ' + Math.round(y));
+      lastScroll = performance.now();
+      if (cursorOn) cursorAlive();
+    }
+    if (Math.abs(pendX) >= 4 || Math.abs(pendY) >= 4) scrollT = setTimeout(flushScroll, SCROLL_GAP);
+    else pendX = pendY = 0;
+  }
+
+  // scroll strip: drag down = page goes down (like a scroll bar); tap top/bottom = one page-ish step
+  const strip = $('scroll');
+  let stripY = 0, stripMoved = 0, stripDown = 0;
+  strip.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    strip.setPointerCapture(e.pointerId);
+    stripY = e.clientY; stripMoved = 0; stripDown = performance.now();
+    strip.classList.add('on'); $('hint').style.opacity = 0;
+  });
+  strip.addEventListener('pointermove', e => {
+    if (!strip.hasPointerCapture(e.pointerId)) return;
+    e.stopPropagation();
+    const dy = e.clientY - stripY; stripY = e.clientY;
+    stripMoved += Math.abs(dy);
+    queueScroll(0, -dy * 7 * cfg.scrollSp);
+  });
+  function stripEnd(e){
+    if (!strip.hasPointerCapture(e.pointerId)) return;
+    e.stopPropagation();
+    strip.classList.remove('on');
+    if (stripMoved < 10 && performance.now() - stripDown < 300){
+      const r = strip.getBoundingClientRect(), up = e.clientY < r.top + r.height / 2;
+      queueScroll(0, (up ? 1 : -1) * 600); buzz();
+    }
+  }
+  strip.addEventListener('pointerup', stripEnd);
+  strip.addEventListener('pointercancel', stripEnd);
+
   pad.addEventListener('pointerup', endPointer);
   pad.addEventListener('pointercancel', endPointer);
   pad.addEventListener('contextmenu', e => e.preventDefault());
