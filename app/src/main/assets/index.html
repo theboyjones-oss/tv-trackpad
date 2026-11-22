@@ -198,7 +198,8 @@
   const has = fn => bridge && typeof bridge[fn] === 'function';
 
   /* ---------- settings ---------- */
-  const defaults = {step:45, haptic:true, onLock:true, dimAfter:60, dimLevel:0.3, dimUsable:true, awakeFor:60};
+  const defaults = {step:45, haptic:true, onLock:true, dimAfter:60, dimLevel:0.3, dimUsable:true, awakeFor:60,
+                    kbdOpen:true, screenMode:false};   // layout: swipe remote + keyboard panel open
   let cfg = {...defaults};
   try { Object.assign(cfg, JSON.parse(localStorage.getItem('tvpad-wifi') || '{}')); } catch(e){}
   const save = () => { try { localStorage.setItem('tvpad-wifi', JSON.stringify(cfg)); } catch(e){} };
@@ -256,8 +257,8 @@
     $('hint').style.opacity = 1;
     if (screen) nextFrame();
   }
-  $('modeRemote').onclick = () => setMode(false);
-  $('modeScreen').onclick = () => setMode(true);
+  $('modeRemote').onclick = () => { cfg.screenMode = false; save(); setMode(false); };
+  $('modeScreen').onclick = () => { cfg.screenMode = true; save(); setMode(true); };
 
   /* ---------- live screen: each image request is one fresh screenshot from the TV ---------- */
   let loading = false, frames = 0, fpsT = performance.now();
@@ -393,12 +394,19 @@
   });
   $('clearBox').onclick = () => { clearTimeout(sendT); flushText(); box.value = ''; prev = ''; box.focus(); };
 
-  $('kbdBtn').onclick = () => {
-    const show = !$('kbd').classList.contains('show');
+  function showKbd(show, focus){
     $('kbd').classList.toggle('show', show);
     $('kbdBtn').classList.toggle('active', show);
-    if (show){ setDim(false); box.focus(); } else { clearTimeout(sendT); flushText(); box.blur(); }
+    if (show){ if (focus){ setDim(false); box.focus(); } }
+    else { clearTimeout(sendT); flushText(); box.blur(); }
+  }
+  $('kbdBtn').onclick = () => {
+    const show = !$('kbd').classList.contains('show');
+    cfg.kbdOpen = show; save();
+    showKbd(show, show);
   };
+  showKbd(cfg.kbdOpen, false);          // open on start, without popping up the phone keyboard
+  setMode(cfg.screenMode);
 
   /* ---------- lock screen, dim mode, screen timeout ---------- */
   let dimmed = false, awake = true, swallowClick = false, idleT, sleepT;
@@ -410,7 +418,7 @@
     if (has('setDim')) bridge.setDim(on, cfg.dimLevel);
   }
   // dim after the idle time; if Settings or the keyboard is open then, check again shortly
-  const busy = () => $('sheet').classList.contains('show') || $('kbd').classList.contains('show');
+  const busy = () => $('sheet').classList.contains('show') || document.activeElement === box;
   function armDim(ms){
     clearTimeout(idleT);
     idleT = setTimeout(() => { if (busy()) armDim(5000); else setDim(true); }, ms);
