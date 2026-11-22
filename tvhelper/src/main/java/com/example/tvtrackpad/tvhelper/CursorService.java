@@ -92,8 +92,8 @@ public class CursorService extends AccessibilityService {
                 t.setDaemon(true);
                 t.start();
             }
-        } catch (Exception ignored) {
-            // service is shutting down, or the port is busy
+        } catch (Exception e) {
+            android.util.Log.e("TVTrackpadCursor", "socket server stopped", e);
         }
     }
 

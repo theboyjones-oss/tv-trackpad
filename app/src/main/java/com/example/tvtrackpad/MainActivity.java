@@ -55,7 +55,7 @@ public class MainActivity extends Activity {
     // TV-side cursor helper (tvhelper module, bundled as assets/tvhelper.apk)
     private static final String HELPER_PKG = "com.example.tvtrackpad.tvhelper";
     private static final String HELPER_SVC = HELPER_PKG + "/" + HELPER_PKG + ".CursorService";
-    private static final int HELPER_VERSION = 1, CURSOR_PORT = 38999;
+    private static final int HELPER_VERSION = 2, CURSOR_PORT = 38999;
     private volatile AdbConnection.Stream cursor;
     private final LinkedBlockingQueue<String> mouseCmds = new LinkedBlockingQueue<>();
     private Thread mouseThread;
@@ -422,12 +422,13 @@ public class MainActivity extends Activity {
         try {
             s = openCursor(c, 1);
             if (s == null) {
-                installHelperIfNeeded(c);
-                enableHelper(c);
+                boolean fresh = installHelperIfNeeded(c);
+                enableHelper(c, fresh);
                 status("Starting the cursor on the TV…", true);
                 s = openCursor(c, 16);
             }
             if (s == null) {
+                diagnoseHelper(c);
                 status("The TV didn't start the cursor helper – see Settings › Share log", true);
                 return null;
             }
@@ -453,10 +454,10 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    private void installHelperIfNeeded(AdbConnection c) throws Exception {
+    private boolean installHelperIfNeeded(AdbConnection c) throws Exception {
         String have = new String(c.exec("pm list packages --show-versioncode " + HELPER_PKG));
         log("helper on TV: " + have.trim());
-        if (have.contains("package:" + HELPER_PKG + " versionCode:" + HELPER_VERSION)) return;
+        if (have.contains("package:" + HELPER_PKG + " versionCode:" + HELPER_VERSION)) return false;
         status("Installing the cursor helper on the TV…", true);
         byte[] apk = readAsset("tvhelper.apk");
         AdbConnection.Stream s = c.open("exec:cmd package install -r -S " + apk.length);
@@ -464,17 +465,52 @@ public class MainActivity extends Activity {
         String res = new String(s.readAll(90000)).trim();
         log("install: " + res);
         if (!res.contains("Success")) throw new java.io.IOException("TV wouldn't install it (" + res + ")");
+        Thread.sleep(2000);   // let the TV finish registering the new app before switching its service on
+        return true;
     }
 
-    private void enableHelper(AdbConnection c) throws Exception {
+    private void enableHelper(AdbConnection c, boolean restart) throws Exception {
         String cur = new String(c.exec("settings get secure enabled_accessibility_services")).trim();
         if (cur.equals("null")) cur = "";
         log("accessibility services: " + cur);
-        if (!cur.contains(HELPER_PKG + "/")) {
+        if (restart && cur.contains(HELPER_PKG + "/")) {
+            // switch our service off so the freshly installed version is started below
+            StringBuilder rest = new StringBuilder();
+            for (String part : cur.split(":"))
+                if (!part.startsWith(HELPER_PKG + "/") && !part.isEmpty()) rest.append(rest.length() > 0 ? ":" : "").append(part);
+            cur = rest.toString();
+            c.exec(cur.isEmpty() ? "settings delete secure enabled_accessibility_services"
+                                 : "settings put secure enabled_accessibility_services " + cur);
+            Thread.sleep(800);
+        }
+        for (int i = 0; i < 3 && !cur.contains(HELPER_PKG + "/"); i++) {
             String v = cur.isEmpty() ? HELPER_SVC : cur + ":" + HELPER_SVC;
             c.exec("settings put secure enabled_accessibility_services " + v);
+            c.exec("settings put secure accessibility_enabled 1");
+            Thread.sleep(1000);
+            cur = new String(c.exec("settings get secure enabled_accessibility_services")).trim();
+            if (cur.equals("null")) cur = "";
+            log("accessibility services now: " + cur);
         }
         c.exec("settings put secure accessibility_enabled 1");
+    }
+
+    /** Writes what the TV says about the helper into the log, for when it won't start. */
+    private void diagnoseHelper(AdbConnection c) {
+        try {
+            String acc = new String(c.exec("dumpsys accessibility"));
+            StringBuilder b = new StringBuilder();
+            for (String line : acc.split("\n"))
+                if (line.contains("tvhelper") || line.contains("Bound services") || line.contains("Enabled services")
+                        || line.contains("Crashed services") || line.contains("Binding services"))
+                    b.append(line.trim(), 0, Math.min(line.trim().length(), 300)).append(" | ");
+            log("dumpsys accessibility: " + b);
+            log("helper process: " + new String(c.exec("pidof " + HELPER_PKG)).trim());
+            String lc = new String(c.exec("logcat -d -t 400 -s TVTrackpadCursor:* AndroidRuntime:E AccessibilityManagerService:*")).trim();
+            log("logcat: " + (lc.length() > 1500 ? lc.substring(lc.length() - 1500) : lc));
+        } catch (Exception e) {
+            log("diagnose failed: " + e);
+        }
     }
 
     private byte[] readAsset(String name) throws java.io.IOException {
