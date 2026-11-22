@@ -29,24 +29,32 @@
   #connectBtn{background:var(--accent);color:#fff;font-weight:600}
   .icon-btn{padding:9px 10px;display:grid;place-items:center}
 
+  .modes{display:flex;gap:6px;margin-bottom:8px}
+  .modes button{flex:1;height:38px;font-size:13px;color:var(--dim)}
+  .modes button.active{background:var(--accent);color:#fff;font-weight:600}
+
   #pad{flex:1;min-height:160px;position:relative;border-radius:18px;
     background:radial-gradient(circle at 50% 40%,#262b33,#1b1f25);
     border:1px solid var(--line);touch-action:none;overflow:hidden}
   #pad::before{content:"";position:absolute;inset:0;opacity:.35;
     background-image:radial-gradient(#4a525e 1px,transparent 1px);background-size:22px 22px}
+  #pad.screen{background:#000}
+  #pad.screen::before{display:none}
+  #screen{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:none;pointer-events:none}
+  #pad.screen #screen{display:block}
   #hint{position:absolute;left:0;right:0;bottom:14px;text-align:center;color:var(--dim);
     font-size:12px;pointer-events:none;padding:0 14px;transition:opacity .4s}
+  #fps{position:absolute;right:10px;top:8px;font-size:11px;color:var(--dim);display:none;pointer-events:none;
+    background:#000a;padding:2px 6px;border-radius:6px}
+  #pad.screen #fps{display:block}
   #touchDot{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;
     background:rgba(79,156,255,.18);border:1px solid rgba(79,156,255,.5);pointer-events:none;
     opacity:0;transition:opacity .15s}
-  #pad.drag #touchDot{background:rgba(62,207,142,.25);border-color:var(--ok)}
-
-  .clicks{display:flex;gap:8px;margin-top:8px}
-  .clicks button{flex:1;height:44px;color:var(--dim);font-size:13px}
 
   .row{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:8px}
   .row button{height:52px;display:grid;place-items:center}
   .row button.active{background:var(--accent);color:#fff}
+  .row.small button{height:40px;font-size:12px;color:var(--dim)}
 
   #kbd{display:none;margin-top:8px;background:var(--panel);border:1px solid var(--line);
     border-radius:16px;padding:10px}
@@ -60,12 +68,12 @@
     gap:6px;justify-content:center;margin-top:10px}
   .dpad button{display:grid;place-items:center}
   .dpad .ok{background:var(--accent);color:#fff;font-weight:600}
-  .extra{display:flex;gap:6px;justify-content:center;margin-top:8px}
+  .extra{display:flex;gap:6px;justify-content:center;margin-top:8px;flex-wrap:wrap}
   .extra button{padding:9px 12px;font-size:13px;color:var(--dim)}
 
   #sheet{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-end;z-index:5}
   #sheet.show{display:flex}
-  .sheet-in{width:100%;background:var(--panel);border-radius:20px 20px 0 0;
+  .sheet-in{width:100%;background:var(--panel);border-radius:20px 20px 0 0;max-height:90vh;overflow:auto;
     padding:18px 18px calc(env(safe-area-inset-bottom) + 18px)}
   .sheet-in h2{margin:0 0 14px;font-size:17px}
   .set{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;
@@ -76,20 +84,17 @@
   input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent)}
   .sheet-actions{display:flex;gap:8px;margin-top:16px}
   .sheet-actions button{flex:1;height:46px}
-
   select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 8px;font:inherit}
 
-  /* ---- OLED dim mode: almost every pixel off, controls as faint outlines ---- */
+  /* ---- dim mode: darker, but every control stays readable ---- */
   body{transition:transform 1.5s}
-  button,#pad,#statusText,#touchDot{transition:background .6s,color .6s,border-color .6s,box-shadow .6s}
+  button,#pad,#statusText{transition:background .6s,color .6s,border-color .6s,box-shadow .6s}
   body.dim button{background:transparent;box-shadow:inset 0 0 0 1px #3a4049;color:#9aa1ab}
-  body.dim #connectBtn{background:transparent;color:#6fb0ff;font-weight:600}
-  body.dim .dpad .ok{background:transparent;color:#6fb0ff}
-  body.dim #pad{background:#000;border-color:#2a2f36}
+  body.dim #connectBtn,body.dim .dpad .ok,body.dim .modes button.active{background:transparent;color:#6fb0ff;font-weight:600}
+  body.dim #pad:not(.screen){background:#000;border-color:#2a2f36}
   body.dim #pad::before{opacity:.2}
   body.dim #statusText{color:#8b929c}
   body.dim .dot,body.dim .dot.on{box-shadow:none;opacity:.8}
-  body.dim #touchDot{background:transparent;border-color:#4f9cff}
   body.dim .row button.active{background:transparent;color:#6fb0ff;box-shadow:inset 0 0 0 1px #4f9cff}
 
   #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 90px);transform:translateX(-50%);
@@ -108,63 +113,70 @@
   </button>
 </header>
 
-<div id="pad">
-  <div id="touchDot"></div>
-  <div id="hint">Tap to click · Two fingers to scroll · Two-finger tap = right click · Double-tap &amp; hold to drag</div>
+<div class="modes">
+  <button id="modeRemote" class="active">Swipe remote</button>
+  <button id="modeScreen">TV screen (tap anywhere)</button>
 </div>
 
-<div class="clicks">
-  <button data-click="1">Left click</button>
-  <button data-click="2">Right click</button>
+<div id="pad">
+  <img id="screen" alt="">
+  <div id="fps"></div>
+  <div id="touchDot"></div>
+  <div id="hint">Swipe to move · Tap = OK · Long-press = hold OK · Two-finger tap = Back</div>
 </div>
 
 <div id="kbd">
   <div class="kline">
     <input id="typeBox" type="text" placeholder="Type here – it goes straight to the TV"
            autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-    <button data-key="42" aria-label="Backspace">⌫</button>
-    <button data-key="40" aria-label="Enter">⏎</button>
+    <button data-kc="67" aria-label="Backspace">⌫</button>
+    <button data-kc="66" aria-label="Enter">⏎</button>
   </div>
   <div class="dpad">
-    <span></span><button data-key="82" aria-label="Up"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button><span></span>
-    <button data-key="80" aria-label="Left"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
-    <button data-key="40" class="ok">OK</button>
-    <button data-key="79" aria-label="Right"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
-    <span></span><button data-key="81" aria-label="Down"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button><span></span>
+    <span></span><button data-kc="19" aria-label="Up"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button><span></span>
+    <button data-kc="21" aria-label="Left"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+    <button data-kc="23" class="ok">OK</button>
+    <button data-kc="22" aria-label="Right"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+    <span></span><button data-kc="20" aria-label="Down"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button><span></span>
   </div>
   <div class="extra">
-    <button data-key="41">Esc</button>
-    <button data-key="43">Tab</button>
-    <button data-key="44">Space</button>
-    <button data-cc="182">⏮ Prev</button>
-    <button data-cc="181">Next ⏭</button>
+    <button data-kc="62">Space</button>
+    <button data-kc="61">Tab</button>
+    <button data-kc="89">⏪ Rew</button>
+    <button data-kc="90">Fwd ⏩</button>
+    <button data-kc="88">⏮ Prev</button>
+    <button data-kc="87">Next ⏭</button>
     <button id="clearBox">Clear box</button>
   </div>
 </div>
 
 <div class="row">
-  <button data-cc="548" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
-  <button data-cc="547" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></button>
-  <button data-cc="205" aria-label="Play/Pause"><svg viewBox="0 0 24 24"><path d="M4 5v14l8-7z" fill="currentColor"/><path d="M16 5v14M20 5v14"/></svg></button>
-  <button data-cc="234" aria-label="Volume down"><svg viewBox="0 0 24 24"><path d="M3 9h4l5-4v14l-5-4H3z"/><path d="M16 12h5"/></svg></button>
-  <button data-cc="233" aria-label="Volume up"><svg viewBox="0 0 24 24"><path d="M3 9h4l5-4v14l-5-4H3z"/><path d="M16 12h5M18.5 9.5v5"/></svg></button>
-  <button data-cc="226" aria-label="Mute"><svg viewBox="0 0 24 24"><path d="M3 9h4l5-4v14l-5-4H3z"/><path d="M16 9l5 6M21 9l-5 6"/></svg></button>
+  <button data-kc="4" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+  <button data-kc="3" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></button>
+  <button data-kc="85" aria-label="Play/Pause"><svg viewBox="0 0 24 24"><path d="M4 5v14l8-7z" fill="currentColor"/><path d="M16 5v14M20 5v14"/></svg></button>
+  <button data-kc="25" aria-label="Volume down"><svg viewBox="0 0 24 24"><path d="M3 9h4l5-4v14l-5-4H3z"/><path d="M16 12h5"/></svg></button>
+  <button data-kc="24" aria-label="Volume up"><svg viewBox="0 0 24 24"><path d="M3 9h4l5-4v14l-5-4H3z"/><path d="M16 12h5M18.5 9.5v5"/></svg></button>
+  <button data-kc="164" aria-label="Mute"><svg viewBox="0 0 24 24"><path d="M3 9h4l5-4v14l-5-4H3z"/><path d="M16 9l5 6M21 9l-5 6"/></svg></button>
   <button id="kbdBtn" aria-label="Keyboard"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></button>
+</div>
+<div class="row small" style="grid-template-columns:repeat(5,1fr)">
+  <button data-kc="26">⏻ Power</button>
+  <button data-kc="176">Settings</button>
+  <button data-kc="84">Search</button>
+  <button data-kc="284">Apps</button>
+  <button data-kc="82">Menu</button>
 </div>
 
 <div id="sheet">
   <div class="sheet-in">
     <h2>Settings</h2>
-    <div class="set"><label>Pointer speed</label><input type="range" id="sens" min="0.4" max="3" step="0.1"></div>
-    <div class="set"><label>Pointer acceleration</label><input type="range" id="accel" min="0" max="2" step="0.1"></div>
-    <div class="set"><label>Scroll speed</label><input type="range" id="scrollSp" min="0.3" max="3" step="0.1"></div>
-    <div class="set"><label>Natural scrolling<small>Content follows your fingers, like a phone</small></label><input type="checkbox" id="natural"></div>
-    <div class="set"><label>Vibrate on click</label><input type="checkbox" id="haptic"></div>
+    <div class="set"><label>Swipe step size<small>How far to swipe for each move on the TV</small></label><input type="range" id="step" min="20" max="120" step="5"></div>
+    <div class="set"><label>Vibrate on press</label><input type="checkbox" id="haptic"></div>
     <div class="set"><label>Show over lock screen<small>Use the remote without unlocking</small></label><input type="checkbox" id="onLock"></div>
-    <div class="set"><label>Dim when idle<small>Black low-power look for OLED screens</small></label>
+    <div class="set"><label>Dim when idle<small>Darker screen to save battery</small></label>
       <select id="dimAfter"><option value="0">Never</option><option value="10">After 10 s</option><option value="30">After 30 s</option><option value="60">After 1 min</option><option value="180">After 3 min</option></select></div>
     <div class="set"><label>Dim brightness</label><input type="range" id="dimLevel" min="0.05" max="1" step="0.05"></div>
-    <div class="set"><label>Controls work while dimmed<small>Off = first tap only brightens. Tap the status line to brighten.</small></label><input type="checkbox" id="dimUsable"></div>
+    <div class="set"><label>Controls work while dimmed<small>Off = first tap only brightens</small></label><input type="checkbox" id="dimUsable"></div>
     <div class="set"><label>Keep screen on<small>Then the phone's normal screen timeout applies</small></label>
       <select id="awakeFor"><option value="15">15 min idle</option><option value="30">30 min idle</option><option value="60">1 hour idle</option><option value="120">2 hours idle</option><option value="0">Always</option></select></div>
     <div class="sheet-actions">
@@ -180,23 +192,21 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const bridge = window.Android || null;          // native Bluetooth bridge (added by the Android wrapper)
+  const bridge = window.Android || null;
   const PREVIEW = !bridge;
+  const has = fn => bridge && typeof bridge[fn] === 'function';
 
   /* ---------- settings ---------- */
-  const defaults = {sens:1.3, accel:0.8, scrollSp:1, natural:true, haptic:true,
-                    onLock:true, dimAfter:60, dimLevel:0.3, dimUsable:true, awakeFor:60};
+  const defaults = {step:45, haptic:true, onLock:true, dimAfter:60, dimLevel:0.3, dimUsable:true, awakeFor:60};
   let cfg = {...defaults};
-  try { Object.assign(cfg, JSON.parse(localStorage.getItem('tvpad') || '{}')); } catch(e){}
-  // older builds defaulted to a near-black 3% dim level; lift saved values to the new readable minimum
-  if (!(cfg.dimLevel >= 0.05)) cfg.dimLevel = defaults.dimLevel;
-  const save = () => { try { localStorage.setItem('tvpad', JSON.stringify(cfg)); } catch(e){} };
-  const onCfg = {};   // hooks run when a setting changes
-  ['sens','accel','scrollSp','dimLevel','dimAfter','awakeFor'].forEach(k => {
+  try { Object.assign(cfg, JSON.parse(localStorage.getItem('tvpad-wifi') || '{}')); } catch(e){}
+  const save = () => { try { localStorage.setItem('tvpad-wifi', JSON.stringify(cfg)); } catch(e){} };
+  const onCfg = {};
+  ['step','dimLevel','dimAfter','awakeFor'].forEach(k => {
     $(k).value = cfg[k];
     $(k).oninput = $(k).onchange = e => { cfg[k] = +e.target.value; save(); onCfg[k] && onCfg[k](); };
   });
-  ['natural','haptic','onLock','dimUsable'].forEach(k => {
+  ['haptic','onLock','dimUsable'].forEach(k => {
     $(k).checked = cfg[k];
     $(k).onchange = e => { cfg[k] = e.target.checked; save(); onCfg[k] && onCfg[k](); };
   });
@@ -207,38 +217,84 @@
 
   /* ---------- sending ---------- */
   function buzz(){ if (cfg.haptic && navigator.vibrate) try{ navigator.vibrate(12); }catch(e){} }
-  function mouse(buttons, dx, dy, wheel=0, pan=0){
-    if (bridge) bridge.mouse(buttons, dx, dy, wheel, pan);
-  }
-  function click(btn){ mouse(btn,0,0); mouse(0,0,0); buzz(); if (PREVIEW) toast(btn===1?'Left click':'Right click'); }
-  function key(code, mod=0){ if (bridge) bridge.key(mod, code); else toast('Key 0x'+code.toString(16)+(mod?' +shift':'')); }
-  function cc(usage){ if (bridge) bridge.consumer(usage); else toast('Media 0x'+usage.toString(16)); buzz(); }
+  const KEY = {UP:19, DOWN:20, LEFT:21, RIGHT:22, OK:23, BACK:4, DEL:67, ENTER:66};
+  function key(kc){ if (bridge) bridge.key(kc); else toast('Key ' + kc); }
 
   /* ---------- status from native ---------- */
   let connected = false;
-  window.onHidStatus = (text, isConnected) => {
+  window.onTvStatus = (text, isConnected) => {
     connected = !!isConnected;
     $('statusText').textContent = text;
     $('dot').classList.toggle('on', connected);
     $('connectBtn').textContent = connected ? 'Switch' : 'Connect';
+    if (connected && screenOn) nextFrame();
   };
-  if (PREVIEW) onHidStatus('Preview mode – run inside the Android app to control the TV', false);
+  if (PREVIEW) onTvStatus('Preview mode – run inside the Android app to control the TV', false);
   else if (bridge.ready) bridge.ready();
 
-  $('connectBtn').onclick = () => bridge ? bridge.connect() : toast('Bluetooth only works inside the Android app');
-  $('logBtn').onclick = () => { if (bridge && bridge.shareLog) bridge.shareLog(); else toast('Log only works inside the Android app'); };
+  $('connectBtn').onclick = () => bridge ? bridge.connect() : toast('Only works inside the Android app');
+  $('logBtn').onclick = () => { if (has('shareLog')) bridge.shareLog(); else toast('Log only works inside the Android app'); };
   $('disconnectBtn').onclick = () => { if (bridge) bridge.disconnect(); $('sheet').classList.remove('show'); };
   $('settingsBtn').onclick = () => { setDim(false); $('sheet').classList.add('show'); };
   $('closeSheet').onclick = () => $('sheet').classList.remove('show');
   $('sheet').onclick = e => { if (e.target.id === 'sheet') $('sheet').classList.remove('show'); };
 
-  /* ---------- trackpad ---------- */
-  const pad = $('pad'), dot = $('touchDot');
+  document.querySelectorAll('[data-kc]').forEach(b => b.onclick = () => { key(+b.dataset.kc); buzz(); });
+
+  /* ---------- modes ---------- */
+  const pad = $('pad'), dot = $('touchDot'), img = $('screen');
+  let screenOn = false;
+  function setMode(screen){
+    screenOn = screen;
+    pad.classList.toggle('screen', screen);
+    $('modeScreen').classList.toggle('active', screen);
+    $('modeRemote').classList.toggle('active', !screen);
+    $('hint').textContent = screen
+      ? 'Tap = tap on the TV · Drag = swipe · Long-press = press and hold'
+      : 'Swipe to move · Tap = OK · Long-press = hold OK · Two-finger tap = Back';
+    $('hint').style.opacity = 1;
+    if (screen) nextFrame();
+  }
+  $('modeRemote').onclick = () => setMode(false);
+  $('modeScreen').onclick = () => setMode(true);
+
+  /* ---------- live screen: each image request is one fresh screenshot from the TV ---------- */
+  let loading = false, frames = 0, fpsT = performance.now();
+  function nextFrame(){
+    if (!screenOn || loading || PREVIEW) return;
+    loading = true;
+    img.src = 'https://tv.screen/frame?' + Date.now();
+  }
+  img.onload = () => {
+    loading = false; frames++;
+    const now = performance.now();
+    if (now - fpsT > 2000){ $('fps').textContent = (frames * 1000 / (now - fpsT)).toFixed(1) + ' fps'; frames = 0; fpsT = now; }
+    if (screenOn) requestAnimationFrame(nextFrame);
+  };
+  img.onerror = () => {
+    loading = false;
+    $('fps').textContent = connected ? 'waiting for TV…' : 'not connected';
+    if (screenOn) setTimeout(nextFrame, 1000);
+  };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) nextFrame(); });
+
+  // phone point -> TV pixel, using where the picture actually sits inside the pad
+  function toTv(cx, cy){
+    const r = pad.getBoundingClientRect();
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    if (!iw || !ih) return null;
+    const s = Math.min(r.width / iw, r.height / ih);
+    const w = iw * s, h = ih * s, ox = r.left + (r.width - w) / 2, oy = r.top + (r.height - h) / 2;
+    const x = (cx - ox) / s, y = (cy - oy) / s;
+    if (x < 0 || y < 0 || x > iw || y > ih) return null;
+    return [Math.round(x), Math.round(y)];
+  }
+
+  /* ---------- touch handling ---------- */
   const pts = new Map();
-  let downAt = 0, moved = 0, maxPts = 0, dragging = false;
-  let lastTap = 0, lastTapX = 0, lastTapY = 0;
-  let accX = 0, accY = 0, accW = 0, accP = 0;
-  const TAP_MS = 220, TAP_MOVE = 14, NOTCH = 22;
+  let downAt = 0, startX = 0, startY = 0, lastX = 0, lastY = 0, moved = 0, maxPts = 0;
+  let accX = 0, accY = 0, holdT = null, held = false;
+  const TAP_MS = 250, TAP_MOVE = 14, HOLD_MS = 550;
 
   pad.addEventListener('pointerdown', e => {
     e.preventDefault();
@@ -246,15 +302,20 @@
     pts.set(e.pointerId, {x:e.clientX, y:e.clientY});
     $('hint').style.opacity = 0;
     if (pts.size === 1){
-      const now = performance.now();
-      downAt = now; moved = 0; maxPts = 1; accX = accY = accW = accP = 0;
-      if (now - lastTap < 300 && Math.hypot(e.clientX-lastTapX, e.clientY-lastTapY) < 50){
-        dragging = true; pad.classList.add('drag'); mouse(1,0,0); buzz();
-      }
+      downAt = performance.now(); moved = 0; maxPts = 1; accX = accY = 0; held = false;
+      startX = lastX = e.clientX; startY = lastY = e.clientY;
       const r = pad.getBoundingClientRect();
       dot.style.left = (e.clientX - r.left)+'px'; dot.style.top = (e.clientY - r.top)+'px'; dot.style.opacity = 1;
+      clearTimeout(holdT);
+      holdT = setTimeout(() => {
+        if (moved > TAP_MOVE || pts.size !== 1) return;
+        held = true; buzz();
+        if (screenOn){ const p = toTv(startX, startY); if (p && bridge) bridge.swipe(p[0], p[1], p[0], p[1], 800); }
+        else if (has('longKey')) bridge.longKey(KEY.OK);
+      }, HOLD_MS);
     } else {
       maxPts = Math.max(maxPts, pts.size);
+      clearTimeout(holdT);
     }
   });
 
@@ -263,24 +324,17 @@
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     p.x = e.clientX; p.y = e.clientY;
     moved += Math.abs(dx) + Math.abs(dy);
-
-    if (pts.size === 1){
-      const r = pad.getBoundingClientRect();
-      dot.style.left = (e.clientX - r.left)+'px'; dot.style.top = (e.clientY - r.top)+'px';
-      const speed = Math.hypot(dx, dy);
-      const f = cfg.sens * (1 + cfg.accel * Math.min(speed, 40) / 10);
-      accX += dx * f; accY += dy * f;
-      const ix = Math.trunc(accX), iy = Math.trunc(accY);
-      if (ix || iy){ accX -= ix; accY -= iy; mouse(dragging ? 1 : 0, ix, iy); }
-    } else if (pts.size === 2){
-      // each finger reports separately, so halve to get the average movement
-      accW += dy * 0.5 * cfg.scrollSp; accP += dx * 0.5 * cfg.scrollSp;
-      const w = Math.trunc(accW / NOTCH), h = Math.trunc(accP / NOTCH);
-      if (w || h){
-        accW -= w * NOTCH; accP -= h * NOTCH;
-        const s = cfg.natural ? 1 : -1;
-        mouse(0, 0, 0, w * s, -h * s);
-      }
+    if (pts.size !== 1) return;
+    lastX = e.clientX; lastY = e.clientY;
+    const r = pad.getBoundingClientRect();
+    dot.style.left = (e.clientX - r.left)+'px'; dot.style.top = (e.clientY - r.top)+'px';
+    if (screenOn || held) return;               // screen mode sends one swipe when the finger lifts
+    // swipe remote: every `step` px of travel = one arrow press
+    accX += dx; accY += dy;
+    while (Math.abs(accX) >= cfg.step || Math.abs(accY) >= cfg.step){
+      if (Math.abs(accX) >= Math.abs(accY)){ const s = Math.sign(accX); key(s > 0 ? KEY.RIGHT : KEY.LEFT); accX -= s * cfg.step; accY *= 0.5; }
+      else { const s = Math.sign(accY); key(s > 0 ? KEY.DOWN : KEY.UP); accY -= s * cfg.step; accX *= 0.5; }
+      buzz();
     }
   });
 
@@ -288,76 +342,65 @@
     if (!pts.has(e.pointerId)) return;
     pts.delete(e.pointerId);
     if (pts.size) return;
+    clearTimeout(holdT);
     dot.style.opacity = 0;
-    const now = performance.now(), quick = now - downAt < TAP_MS;
-    if (dragging){
-      dragging = false; pad.classList.remove('drag');
-      mouse(0,0,0);
-      if (quick && moved < TAP_MOVE){ click(1); }   // double-tap without moving = double click
-      lastTap = 0;
+    if (held) return;
+    const dur = performance.now() - downAt, quick = dur < TAP_MS;
+    if (maxPts >= 2){
+      if (quick && moved < TAP_MOVE * maxPts){ key(KEY.BACK); buzz(); }
       return;
     }
-    if (quick && moved < TAP_MOVE * maxPts){
-      if (maxPts >= 2){ click(2); lastTap = 0; }
-      else { click(1); lastTap = now; lastTapX = e.clientX; lastTapY = e.clientY; }
+    if (screenOn){
+      const a = toTv(startX, startY);
+      if (!a){ toast(connected ? 'Wait for the TV picture' : 'Not connected'); return; }
+      if (moved < TAP_MOVE){ if (bridge) bridge.tap(a[0], a[1]); else toast('Tap ' + a); }
+      else {
+        const b = toTv(lastX, lastY) || a;
+        if (bridge) bridge.swipe(a[0], a[1], b[0], b[1], Math.round(dur));
+      }
+      buzz();
+      return;
     }
+    if (quick && moved < TAP_MOVE){ key(KEY.OK); buzz(); }
   }
   pad.addEventListener('pointerup', endPointer);
   pad.addEventListener('pointercancel', endPointer);
   pad.addEventListener('contextmenu', e => e.preventDefault());
 
-  document.querySelectorAll('[data-click]').forEach(b => b.onclick = () => click(+b.dataset.click));
-  document.querySelectorAll('[data-cc]').forEach(b => b.onclick = () => cc(+b.dataset.cc));
-  document.querySelectorAll('[data-key]').forEach(b => b.onclick = () => { key(+b.dataset.key); buzz(); });
-
   /* ---------- keyboard ---------- */
-  // US layout HID usage codes
-  const MAP = {}, SHIFT = 2;
-  'abcdefghijklmnopqrstuvwxyz'.split('').forEach((c,i) => { MAP[c] = [0x04+i,0]; MAP[c.toUpperCase()] = [0x04+i,SHIFT]; });
-  '1234567890'.split('').forEach((c,i) => MAP[c] = [0x1E+i,0]);
-  '!@#$%^&*()'.split('').forEach((c,i) => MAP[c] = [0x1E+i,SHIFT]);
-  [[' ',0x2C],['-',0x2D],['=',0x2E],['[',0x2F],[']',0x30],['\\',0x31],[';',0x33],["'",0x34],['`',0x35],[',',0x36],['.',0x37],['/',0x38],['\n',0x28],['\t',0x2B]]
-    .forEach(([c,k]) => MAP[c] = [k,0]);
-  [['_',0x2D],['+',0x2E],['{',0x2F],['}',0x30],['|',0x31],[':',0x33],['"',0x34],['~',0x35],['<',0x36],['>',0x37],['?',0x38]]
-    .forEach(([c,k]) => MAP[c] = [k,SHIFT]);
-  // smart punctuation from phone keyboards
-  Object.assign(MAP, {'‘':MAP["'"], '’':MAP["'"], '“':MAP['"'], '”':MAP['"'], '–':MAP['-'], '—':MAP['-'], '…':null});
-
-  function typeText(str){
-    for (const ch of str){
-      if (ch === '…'){ typeText('...'); continue; }
-      const m = MAP[ch];
-      if (m) key(m[0], m[1]);
-    }
-  }
-
   const box = $('typeBox');
-  let prev = '';
+  let prev = '', pending = '', sendT;
+  function flushText(){ if (pending){ if (bridge) bridge.text(pending); pending = ''; } }
   box.addEventListener('input', () => {
     const now = box.value;
     let i = 0; const n = Math.min(prev.length, now.length);
     while (i < n && prev[i] === now[i]) i++;
-    for (let d = prev.length - i; d > 0; d--) key(0x2A);   // backspaces for removed chars
-    typeText(now.slice(i));
+    const removed = prev.length - i;
+    if (removed > 0){
+      // drop not-yet-sent characters first, then delete on the TV
+      const fromPending = Math.min(removed, pending.length);
+      pending = pending.slice(0, pending.length - fromPending);
+      for (let d = removed - fromPending; d > 0; d--) key(KEY.DEL);
+    }
+    pending += now.slice(i);
     prev = now;
+    clearTimeout(sendT); sendT = setTimeout(flushText, 250);   // batch letters so typing is quick
   });
   box.addEventListener('keydown', e => {
-    if (e.key === 'Enter'){ e.preventDefault(); key(0x28); }
-    else if (e.key === 'Backspace' && box.value === ''){ key(0x2A); }   // keep deleting on the TV
+    if (e.key === 'Enter'){ e.preventDefault(); clearTimeout(sendT); flushText(); key(KEY.ENTER); }
+    else if (e.key === 'Backspace' && box.value === ''){ key(KEY.DEL); }
   });
-  $('clearBox').onclick = () => { box.value = ''; prev = ''; box.focus(); };
+  $('clearBox').onclick = () => { clearTimeout(sendT); flushText(); box.value = ''; prev = ''; box.focus(); };
 
   $('kbdBtn').onclick = () => {
     const show = !$('kbd').classList.contains('show');
     $('kbd').classList.toggle('show', show);
     $('kbdBtn').classList.toggle('active', show);
-    if (show){ setDim(false); box.focus(); } else box.blur();
+    if (show){ setDim(false); box.focus(); } else { clearTimeout(sendT); flushText(); box.blur(); }
   };
 
-  /* ---------- lock screen, OLED dim mode, screen timeout ---------- */
-  const has = fn => bridge && typeof bridge[fn] === 'function';
+  /* ---------- lock screen, dim mode, screen timeout ---------- */
   let dimmed = false, awake = true, swallowClick = false, idleT, sleepT;
-
   function setDim(on){
     if (dimmed === on) return;
     dimmed = on;
@@ -367,13 +410,12 @@
   }
   function activity(){
     clearTimeout(idleT); clearTimeout(sleepT);
+    if (dimmed && cfg.dimUsable) setDim(false);
     if (!awake){ awake = true; if (has('keepAwake')) bridge.keepAwake(true); }
-    const busy = () => $('sheet').classList.contains('show') || $('kbd').classList.contains('show');
+    const busy = () => $('sheet').classList.contains('show') || $('kbd').classList.contains('show') || screenOn;
     if (cfg.dimAfter > 0) idleT = setTimeout(() => { if (!busy()) setDim(true); }, cfg.dimAfter * 1000);
     if (cfg.awakeFor > 0) sleepT = setTimeout(() => { awake = false; if (has('keepAwake')) bridge.keepAwake(false); }, cfg.awakeFor * 60000);
   }
-
-  // capture phase: runs before the trackpad/buttons see the touch
   document.addEventListener('pointerdown', e => {
     if (dimmed && !cfg.dimUsable){
       e.stopPropagation(); e.preventDefault();
@@ -388,8 +430,6 @@
   document.addEventListener('keydown', activity, true);
   box.addEventListener('input', activity);
   document.querySelector('.status').onclick = () => { setDim(false); activity(); };
-
-  // OLED burn-in protection: nudge the layout a few pixels every minute while dimmed
   setInterval(() => {
     if (!dimmed) return;
     const r = () => Math.round(Math.random() * 8 - 4);
