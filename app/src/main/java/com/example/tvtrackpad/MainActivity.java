@@ -87,6 +87,10 @@ public class MainActivity extends Activity {
     private int retries;
     private long connectedAt;
     private static final int MAX_RETRIES = 4;
+    private int quickDrops;                  // drops within ~3 s of connecting
+    private boolean reRegister;              // stale registration found – replace it
+    private BluetoothHidDeviceAppSdpSettings sdp;
+    private BluetoothHidDeviceAppQosSettings qos;
 
     // ---- diagnostic log (Settings › Share log)
     private final java.util.ArrayDeque<String> logBuf = new java.util.ArrayDeque<>();
@@ -212,14 +216,18 @@ public class MainActivity extends Activity {
             @Override public void onServiceConnected(int profile, BluetoothProfile proxy) {
                 hid = (BluetoothHidDevice) proxy;
                 log("HID proxy connected");
-                BluetoothHidDeviceAppSdpSettings sdp = new BluetoothHidDeviceAppSdpSettings(
+                sdp = new BluetoothHidDeviceAppSdpSettings(
                     "TV Trackpad", "Phone trackpad and keyboard", "TV Trackpad",
                     BluetoothHidDevice.SUBCLASS1_COMBO, DESCRIPTOR);
-                BluetoothHidDeviceAppQosSettings qos = new BluetoothHidDeviceAppQosSettings(
+                qos = new BluetoothHidDeviceAppQosSettings(
                     BluetoothHidDeviceAppQosSettings.SERVICE_BEST_EFFORT, 800, 9, 0, 11250,
                     BluetoothHidDeviceAppQosSettings.MAX);
                 boolean r = hid.registerApp(sdp, null, qos, exec, callback);
                 log("registerApp -> " + r);
+                if (!r) {   // an older registration is still live – drop it so the TV sees the current one
+                    reRegister = true;
+                    log("unregisterApp -> " + hid.unregisterApp());
+                }
             }
             @Override public void onServiceDisconnected(int profile) {
                 log("HID proxy DISCONNECTED");
@@ -233,7 +241,16 @@ public class MainActivity extends Activity {
     private final BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
         @Override public void onAppStatusChanged(BluetoothDevice plugged, boolean registered) {
             log("appStatus registered=" + registered + " plugged=" + (plugged == null ? "none" : name(plugged)));
-            if (!registered) { status("Not registered – reopen the app", false); return; }
+            if (!registered) {
+                if (reRegister && hid != null) {
+                    reRegister = false;
+                    log("re-registerApp -> " + hid.registerApp(sdp, null, qos, exec, callback));
+                    return;
+                }
+                status("Not registered – reopen the app", false);
+                return;
+            }
+            if (reRegister) return;   // wait for the fresh registration
             status("Ready – tap Connect", false);
             BluetoothDevice target = plugged;
             if (target == null) {
@@ -253,6 +270,7 @@ public class MainActivity extends Activity {
                 + " userDisc=" + userDisconnect + " retries=" + retries);
             if (state == BluetoothProfile.STATE_CONNECTED) {
                 host = device;
+                ui.postDelayed(() -> { if (host != null) quickDrops = 0; }, 3500);
                 wanted = device;
                 connectedAt = SystemClock.elapsedRealtime();
                 prefs.edit().putString("last", device.getAddress()).apply();
@@ -262,8 +280,17 @@ public class MainActivity extends Activity {
             } else if (state == BluetoothProfile.STATE_CONNECTING) {
                 status("Connecting to " + name(device) + "…", false);
             } else if (state == BluetoothProfile.STATE_DISCONNECTED) {
+                long up = connectedAt > 0 ? SystemClock.elapsedRealtime() - connectedAt : -1;
                 if (device.equals(host)) host = null;
                 if (host != null) return;
+                if (up >= 0 && up < 3000) quickDrops++; else if (up >= 3000) quickDrops = 0;
+                connectedAt = 0;
+                if (!userDisconnect && quickDrops >= 2) {
+                    retries = MAX_RETRIES; wanted = null;
+                    status("The TV is rejecting the phone. Re-pair from the TV: Connect › Pair from the TV", false);
+                    runOnUiThread(MainActivity.this::showRepairHelp);
+                    return;
+                }
                 if (!userDisconnect && device.equals(wanted) && retries < MAX_RETRIES) {
                     retries++;
                     status("Connection dropped – reconnecting (" + retries + "/" + MAX_RETRIES + ")…", false);
@@ -307,7 +334,7 @@ public class MainActivity extends Activity {
         if (hid == null) { status("Bluetooth not ready yet", false); return; }
         if (adapter.isDiscovering()) adapter.cancelDiscovery();   // scanning makes new links flaky
         if (d.equals(host)) { status("Connected to " + name(d), true); return; }
-        wanted = d; userDisconnect = false; retries = 0;
+        wanted = d; userDisconnect = false; retries = 0; quickDrops = 0;
         if (host != null) hid.disconnect(host);
         if (d.getBondState() == BluetoothDevice.BOND_BONDED) {
             status("Connecting to " + name(d) + "…", false);
@@ -325,18 +352,32 @@ public class MainActivity extends Activity {
         if (adapter == null || !adapter.isEnabled()) { startHid(); return; }
         final List<BluetoothDevice> bonded = new ArrayList<>(adapter.getBondedDevices());
         List<String> labels = new ArrayList<>();
+        labels.add("📺  Pair from the TV (recommended for first setup)");
         for (BluetoothDevice d : bonded) labels.add(name(d));
-        labels.add("🔍  Search for my TV…");
-        labels.add("📡  Make phone visible (pair from the TV)");
+        labels.add("🔍  Search for my TV from the phone…");
 
         new AlertDialog.Builder(this)
             .setTitle("Connect to TV")
             .setItems(labels.toArray(new String[0]), (dlg, which) -> {
-                if (which < bonded.size()) connectTo(bonded.get(which));
-                else if (which == bonded.size()) startScan();
-                else makeDiscoverable();
+                if (which == 0) showRepairHelp();
+                else if (which <= bonded.size()) connectTo(bonded.get(which - 1));
+                else startScan();
             })
             .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    /** The TV must pair with the phone as an accessory, or its keyboard/mouse service rejects us after ~1 s. */
+    private void showRepairHelp() {
+        new AlertDialog.Builder(this)
+            .setTitle("Pair from the TV")
+            .setMessage("1. On the TV: Settings › Remotes & Accessories. If this phone is listed, select it and choose Unpair/Forget.\n\n"
+                + "2. On this phone: Bluetooth settings › tap the TV › Forget.\n\n"
+                + "3. Come back here and tap 'Make phone visible'.\n\n"
+                + "4. On the TV: Remotes & Accessories › Pair remote or accessory. Pick this phone and accept the code on both screens.")
+            .setPositiveButton("Make phone visible", (d, w) -> makeDiscoverable())
+            .setNeutralButton("Open phone Bluetooth", (d, w) -> startActivity(new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)))
+            .setNegativeButton("Close", null)
             .show();
     }
 
