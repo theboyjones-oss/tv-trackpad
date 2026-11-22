@@ -3,6 +3,9 @@
 
     <!-- needed even for the local-only (127.0.0.1) socket the phone talks to -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- draw the cursor over other apps; the phone grants this over ADB -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -11,17 +14,9 @@
         android:label="TV Trackpad Cursor"
         android:icon="@android:drawable/sym_def_app_icon">
 
+        <!-- started by the phone app with `am start-foreground-service` -->
         <service
             android:name=".CursorService"
-            android:exported="true"
-            android:label="TV Trackpad cursor"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/cursor_service" />
-        </service>
+            android:exported="true" />
     </application>
 </manifest>

@@ -3,7 +3,7 @@ plugins {
 }
 
 // Small companion app installed on the TV by the phone app. It draws the mouse cursor
-// and performs clicks/scrolls via an accessibility service.
+// as an overlay window; clicks are injected by the phone app over ADB.
 android {
     namespace 'com.example.tvtrackpad.tvhelper'
     compileSdk 34
@@ -11,9 +11,9 @@ android {
     defaultConfig {
         applicationId 'com.example.tvtrackpad.tvhelper'
         minSdk 24
-        targetSdk 34
-        versionCode 2
-        versionName '1.1'
+        targetSdk 28            // keeps the overlay service simple to start from ADB
+        versionCode 3
+        versionName '1.2'
     }
 
     signingConfigs {

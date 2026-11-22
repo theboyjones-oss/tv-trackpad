@@ -1,22 +1,28 @@
 package com.example.tvtrackpad.tvhelper;
 
-import android.accessibilityservice.AccessibilityService;
-import android.accessibilityservice.GestureDescription;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.Service;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.os.Build;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.accessibility.AccessibilityEvent;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -24,16 +30,16 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Draws a mouse cursor over everything on the TV and performs taps/scrolls where it points.
- * The phone app reaches it through ADB port forwarding to 127.0.0.1:38999 and sends one
- * command per line:
- *   M dx dy   move (shows the cursor)      V   show       H   hide
- *   C         click at the cursor          L   long-press at the cursor
- *   S dx dy   scroll (swipe from the cursor by dx,dy)
- *   P         ping (replies "ok")
+ * Draws the mouse cursor on the TV as an overlay window ("display over other apps").
+ * The phone app starts this service over ADB, keeps track of the cursor position itself,
+ * and performs clicks with `input tap`, so this only has to draw. Commands, one per line,
+ * arrive on 127.0.0.1:38999 through ADB port forwarding:
+ *   A x y   show the cursor with its tip at screen pixel x,y
+ *   H       hide          P   ping (replies "ok WxH" or "nooverlay WxH")
  */
-public class CursorService extends AccessibilityService {
+public class CursorService extends Service {
 
+    static final String TAG = "TVTrackpadCursor";
     static final int PORT = 38999;
     private static final long AUTO_HIDE_MS = 30000;
 
@@ -41,41 +47,74 @@ public class CursorService extends AccessibilityService {
     private WindowManager wm;
     private CursorView view;
     private WindowManager.LayoutParams lp;
-    private int sw, sh, size;
-    private float x, y, unit;
-    private boolean shown;
+    private int sw, sh;
     private volatile ServerSocket server;
-    private final Runnable autoHide = () -> setShown(false);
+    private boolean started;
+    private final Runnable autoHide = () -> show(false);
+
+    @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override
-    protected void onServiceConnected() {
-        super.onServiceConnected();
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        foreground();
+        if (!started) {
+            started = true;
+            setUpOverlay();
+            Thread t = new Thread(this::serve, "cursor-server");
+            t.setDaemon(true);
+            t.start();
+        } else if (view == null) {
+            setUpOverlay();   // overlay permission may have been granted since the first start
+        }
+        return START_STICKY;
+    }
+
+    private void foreground() {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            Notification.Builder b;
+            if (Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(new NotificationChannel("cursor", "Cursor", NotificationManager.IMPORTANCE_MIN));
+                b = new Notification.Builder(this, "cursor");
+            } else {
+                b = new Notification.Builder(this);
+            }
+            Notification n = b.setContentTitle("TV Trackpad cursor")
+                .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                .setOngoing(true).build();
+            startForeground(1, n);
+        } catch (Exception e) {
+            Log.e(TAG, "startForeground failed", e);
+        }
+    }
+
+    private void setUpOverlay() {
         wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
         DisplayMetrics dm = new DisplayMetrics();
         wm.getDefaultDisplay().getRealMetrics(dm);
         sw = dm.widthPixels;
         sh = dm.heightPixels;
-        unit = Math.max(sw, sh) / 1920f;           // phone movement feels the same on HD and 4K
-        size = Math.round(40 * unit);
-        x = sw / 2f;
-        y = sh / 2f;
-
-        view = new CursorView(this);
+        int size = Math.round(40 * Math.max(sw, sh) / 1920f);
+        CursorView v = new CursorView(this);
         lp = new WindowManager.LayoutParams(size, size,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                                        : WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.LEFT;
-        view.setVisibility(View.GONE);
-        try { wm.addView(view, lp); } catch (Exception e) { view = null; }
-        place();
-
-        Thread t = new Thread(this::serve, "cursor-server");
-        t.setDaemon(true);
-        t.start();
+        lp.x = sw / 2;
+        lp.y = sh / 2;
+        v.setVisibility(View.GONE);
+        try {
+            wm.addView(v, lp);
+            view = v;
+        } catch (Exception e) {
+            Log.e(TAG, "overlay not allowed", e);
+            view = null;
+        }
     }
 
     // ------------------------------------------------------------ socket
@@ -93,7 +132,7 @@ public class CursorService extends AccessibilityService {
                 t.start();
             }
         } catch (Exception e) {
-            android.util.Log.e("TVTrackpadCursor", "socket server stopped", e);
+            Log.e(TAG, "socket server stopped", e);
         }
     }
 
@@ -101,87 +140,43 @@ public class CursorService extends AccessibilityService {
         try (Socket sock = c;
              BufferedReader in = new BufferedReader(new InputStreamReader(sock.getInputStream(), StandardCharsets.UTF_8))) {
             sock.setTcpNoDelay(true);
+            OutputStream out = sock.getOutputStream();
             String line;
             while ((line = in.readLine()) != null) {
                 final String cmd = line.trim();
                 if (cmd.equals("P")) {
-                    sock.getOutputStream().write("ok\n".getBytes(StandardCharsets.UTF_8));
-                    sock.getOutputStream().flush();
-                    continue;
+                    String reply = (view == null ? "nooverlay " : "ok ") + sw + "x" + sh + "\n";
+                    out.write(reply.getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+                } else if (!cmd.isEmpty()) {
+                    ui.post(() -> handle(cmd));
                 }
-                if (!cmd.isEmpty()) ui.post(() -> handle(cmd));
             }
         } catch (Exception ignored) {
         }
     }
-
-    // ------------------------------------------------------------ commands (UI thread)
 
     private void handle(String cmd) {
         String[] p = cmd.split(" ");
         try {
-            switch (p[0]) {
-                case "M":
-                    setShown(true);
-                    x = clamp(x + Float.parseFloat(p[1]) * unit, 0, sw - 1);
-                    y = clamp(y + Float.parseFloat(p[2]) * unit, 0, sh - 1);
-                    place();
-                    break;
-                case "V": setShown(true); break;
-                case "H": setShown(false); return;
-                case "C": if (shown) tap(60); else setShown(true); break;
-                case "L": if (shown) tap(900); break;
-                case "S": if (shown) scroll(Float.parseFloat(p[1]) * unit, Float.parseFloat(p[2]) * unit); break;
-                default: return;
+            if (p[0].equals("A")) {
+                lp.x = Integer.parseInt(p[1]);
+                lp.y = Integer.parseInt(p[2]);
+                show(true);
+                if (view != null) wm.updateViewLayout(view, lp);
+                ui.removeCallbacks(autoHide);
+                ui.postDelayed(autoHide, AUTO_HIDE_MS);
+            } else if (p[0].equals("H")) {
+                show(false);
             }
         } catch (Exception ignored) {
-            return;
         }
-        ui.removeCallbacks(autoHide);
-        ui.postDelayed(autoHide, AUTO_HIDE_MS);
     }
 
-    private void setShown(boolean on) {
-        shown = on;
+    private void show(boolean on) {
         if (view != null) view.setVisibility(on ? View.VISIBLE : View.GONE);
         if (!on) ui.removeCallbacks(autoHide);
     }
-
-    private void place() {
-        if (view == null) return;
-        lp.x = Math.round(x);
-        lp.y = Math.round(y);
-        try { wm.updateViewLayout(view, lp); } catch (Exception ignored) {}
-    }
-
-    private void tap(long ms) {
-        Path path = new Path();
-        path.moveTo(x, y);
-        gesture(path, ms);
-    }
-
-    private void scroll(float dx, float dy) {
-        // start from the cursor, keep the stroke on screen
-        float x2 = clamp(x + dx, 1, sw - 2), y2 = clamp(y + dy, 1, sh - 2);
-        if (Math.abs(x2 - x) < 2 && Math.abs(y2 - y) < 2) return;
-        Path path = new Path();
-        path.moveTo(x, y);
-        path.lineTo(x2, y2);
-        gesture(path, 220);
-    }
-
-    private void gesture(Path path, long ms) {
-        GestureDescription g = new GestureDescription.Builder()
-            .addStroke(new GestureDescription.StrokeDescription(path, 0, ms))
-            .build();
-        dispatchGesture(g, null, null);
-    }
-
-    private static float clamp(float v, float lo, float hi) { return Math.max(lo, Math.min(hi, v)); }
-
-    @Override public void onAccessibilityEvent(AccessibilityEvent event) { }
-
-    @Override public void onInterrupt() { }
 
     @Override
     public void onDestroy() {
@@ -205,15 +200,15 @@ public class CursorService extends AccessibilityService {
             edge.setColor(0xFF111111);
             edge.setStyle(Paint.Style.STROKE);
             edge.setStrokeJoin(Paint.Join.ROUND);
-            setLayerType(LAYER_TYPE_SOFTWARE, null);    // needed for the shadow
+            setLayerType(LAYER_TYPE_SOFTWARE, null);
         }
 
         @Override
         protected void onSizeChanged(int w, int h, int ow, int oh) {
             float s = Math.min(w, h) * 0.9f;
             edge.setStrokeWidth(Math.max(1.5f, s / 22f));
-            arrow.reset();
             float o = edge.getStrokeWidth();
+            arrow.reset();
             arrow.moveTo(o, o);
             arrow.lineTo(o, s * 0.82f);
             arrow.lineTo(s * 0.23f, s * 0.63f);

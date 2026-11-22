@@ -29,6 +29,7 @@ and it installs over the previous version.
 
 ## On-screen cursor
 The top box is a trackpad. The first tap installs (once) and starts a small helper on the TV
-(`tvhelper/`, an accessibility service), then shows a mouse cursor. Slide to move, tap to click,
+(`tvhelper/`, an overlay that draws the arrow), then shows a mouse cursor. The phone keeps
+the cursor position and clicks/scrolls with `input tap` / `input swipe`. Slide to move, tap to click,
 hold to long-press, two fingers to scroll, two-finger tap = Back. Pressing any remote button hides
 the cursor. The helper is built by CI and bundled into the phone app as `assets/tvhelper.apk`.
