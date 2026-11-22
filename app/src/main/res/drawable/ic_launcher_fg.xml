@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trackpad with a pointer, drawn inside the 66dp adaptive-icon safe zone -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- pad outline -->
+    <path android:fillColor="#00000000" android:strokeColor="#FF4F9CFF" android:strokeWidth="4"
+        android:pathData="M38,30 L70,30 Q78,30 78,38 L78,64 Q78,72 70,72 L38,72 Q30,72 30,64 L30,38 Q30,30 38,30 Z" />
+    <!-- click divider -->
+    <path android:fillColor="#00000000" android:strokeColor="#FF4F9CFF" android:strokeWidth="3"
+        android:pathData="M30,62 L78,62 M54,62 L54,72" />
+    <!-- pointer -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M48,36 L48,56 L53,51 L57,59 L61,57 L57,49 L64,49 Z" />
+</vector>
