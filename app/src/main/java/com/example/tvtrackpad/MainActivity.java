@@ -7,6 +7,7 @@ import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHidDevice;
+import android.bluetooth.BluetoothHidDeviceAppQosSettings;
 import android.bluetooth.BluetoothHidDeviceAppSdpSettings;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothProfile;
@@ -19,6 +20,9 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
@@ -48,6 +52,8 @@ public class MainActivity extends Activity {
         0x05,0x01, 0x09,0x06, 0xA1,0x01, 0x85,ID_KEYBOARD,
         0x05,0x07, 0x19,0xE0, 0x29,0xE7, 0x15,0x00, 0x25,0x01, 0x75,0x01, 0x95,0x08, 0x81,0x02,
         0x95,0x01, 0x75,0x08, 0x81,0x01,
+        0x95,0x05, 0x75,0x01, 0x05,0x08, 0x19,0x01, 0x29,0x05, 0x91,0x02,   // LED output report
+        0x95,0x01, 0x75,0x03, 0x91,0x03,
         0x95,0x06, 0x75,0x08, 0x15,0x00, 0x26,0xFF,0x00, 0x05,0x07, 0x19,0x00, 0x2A,0xFF,0x00, 0x81,0x00,
         0xC0,
         // Mouse
@@ -73,6 +79,14 @@ public class MainActivity extends Activity {
     private String lastStatus = "Starting…";
     private boolean lastConnected = false;
     private final Executor exec = Executors.newSingleThreadExecutor();
+    private final Handler ui = new Handler(Looper.getMainLooper());
+
+    // auto-reconnect when the TV drops us without the user asking
+    private BluetoothDevice wanted;          // device the user wants to stay connected to
+    private boolean userDisconnect;
+    private int retries;
+    private long connectedAt;
+    private static final int MAX_RETRIES = 4;
 
     private final List<BluetoothDevice> scanDevices = new ArrayList<>();
     private ArrayAdapter<String> scanList;
@@ -173,7 +187,10 @@ public class MainActivity extends Activity {
                 BluetoothHidDeviceAppSdpSettings sdp = new BluetoothHidDeviceAppSdpSettings(
                     "TV Trackpad", "Phone trackpad and keyboard", "TV Trackpad",
                     BluetoothHidDevice.SUBCLASS1_COMBO, DESCRIPTOR);
-                hid.registerApp(sdp, null, null, exec, callback);
+                BluetoothHidDeviceAppQosSettings qos = new BluetoothHidDeviceAppQosSettings(
+                    BluetoothHidDeviceAppQosSettings.SERVICE_BEST_EFFORT, 800, 9, 0, 11250,
+                    BluetoothHidDeviceAppQosSettings.MAX);
+                hid.registerApp(sdp, null, qos, exec, callback);
             }
             @Override public void onServiceDisconnected(int profile) {
                 hid = null; host = null; proxyRequested = false;
@@ -194,6 +211,7 @@ public class MainActivity extends Activity {
             }
             if (target != null && target.getBondState() == BluetoothDevice.BOND_BONDED) {
                 status("Reconnecting to " + name(target) + "…", false);
+                wanted = target; userDisconnect = false;
                 hid.connect(target);
             }
         }
@@ -201,29 +219,57 @@ public class MainActivity extends Activity {
         @Override public void onConnectionStateChanged(BluetoothDevice device, int state) {
             if (state == BluetoothProfile.STATE_CONNECTED) {
                 host = device;
+                wanted = device;
+                connectedAt = SystemClock.elapsedRealtime();
                 prefs.edit().putString("last", device.getAddress()).apply();
                 status("Connected to " + name(device), true);
+                // count the link as stable once it has stayed up for a while
+                ui.postDelayed(() -> { if (host != null && SystemClock.elapsedRealtime() - connectedAt >= 9000) retries = 0; }, 10000);
             } else if (state == BluetoothProfile.STATE_CONNECTING) {
                 status("Connecting to " + name(device) + "…", false);
             } else if (state == BluetoothProfile.STATE_DISCONNECTED) {
                 if (device.equals(host)) host = null;
-                if (host == null) status("Disconnected – tap Connect", false);
+                if (host != null) return;
+                if (!userDisconnect && device.equals(wanted) && retries < MAX_RETRIES) {
+                    retries++;
+                    status("Connection dropped – reconnecting (" + retries + "/" + MAX_RETRIES + ")…", false);
+                    ui.postDelayed(() -> {
+                        if (hid != null && host == null && device.equals(wanted) && !userDisconnect) hid.connect(device);
+                    }, 1200L * retries);
+                } else if (!userDisconnect && device.equals(wanted)) {
+                    status("Keeps dropping – on the TV remove TV Trackpad from Remotes & Accessories, unpair the TV on this phone, then pair again", false);
+                } else {
+                    status("Disconnected – tap Connect", false);
+                }
             }
         }
 
         @Override public void onGetReport(BluetoothDevice device, byte type, byte id, int bufferSize) {
-            int len = id == ID_KEYBOARD ? 8 : id == ID_MOUSE ? 5 : 2;
-            hid.replyReport(device, type, id, new byte[len]);
+            if (type == BluetoothHidDevice.REPORT_TYPE_INPUT && (id == ID_KEYBOARD || id == ID_MOUSE || id == ID_CONSUMER)) {
+                int len = id == ID_KEYBOARD ? 8 : id == ID_MOUSE ? 5 : 2;
+                hid.replyReport(device, type, id, new byte[len]);
+            } else if (type == BluetoothHidDevice.REPORT_TYPE_OUTPUT && id == ID_KEYBOARD) {
+                hid.replyReport(device, type, id, new byte[1]);
+            } else {
+                hid.reportError(device, BluetoothHidDevice.ERROR_RSP_INVALID_RPT_ID);
+            }
         }
 
         @Override public void onSetReport(BluetoothDevice device, byte type, byte id, byte[] data) {
             hid.reportError(device, BluetoothHidDevice.ERROR_RSP_SUCCESS);
         }
+
+        @Override public void onSetProtocol(BluetoothDevice device, byte protocol) { /* report mode only; accept */ }
+
+        @Override public void onInterruptData(BluetoothDevice device, byte reportId, byte[] data) { /* keyboard LEDs – ignore */ }
     };
 
     private void connectTo(BluetoothDevice d) {
         if (hid == null) { status("Bluetooth not ready yet", false); return; }
-        if (host != null && !host.equals(d)) hid.disconnect(host);
+        if (adapter.isDiscovering()) adapter.cancelDiscovery();   // scanning makes new links flaky
+        if (d.equals(host)) { status("Connected to " + name(d), true); return; }
+        wanted = d; userDisconnect = false; retries = 0;
+        if (host != null) hid.disconnect(host);
         if (d.getBondState() == BluetoothDevice.BOND_BONDED) {
             status("Connecting to " + name(d) + "…", false);
             hid.connect(d);
@@ -345,6 +391,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void connect() { runOnUiThread(MainActivity.this::showPicker); }
 
         @JavascriptInterface public void disconnect() {
+            userDisconnect = true; wanted = null;
             if (hid != null && host != null) hid.disconnect(host);
         }
 
