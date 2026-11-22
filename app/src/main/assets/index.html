@@ -7,62 +7,62 @@
 <title>TV Trackpad</title>
 <style>
   :root{
-    --bg:#000; --panel:#121418; --panel2:#23272e; --line:#363c45;
-    --text:#e8eaed; --dim:#b4bac3; --accent:#4f9cff; --ok:#3ecf8e; --warn:#f5a524;
+    --bg:#000; --panel:#060708; --panel2:#111316; --line:#1b1e22;
+    --text:#c4c9d0; --dim:#8a919b; --accent:#24508c; --ok:#3ecf8e; --warn:#f5a524;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
-    font:15px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;
+    font:15px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-x:hidden;overflow-y:auto;
     user-select:none;-webkit-user-select:none}
-  body{display:flex;flex-direction:column;height:100dvh;
+  body{display:flex;flex-direction:column;height:100vh;height:100dvh;
     padding:env(safe-area-inset-top) 10px calc(env(safe-area-inset-bottom) + 10px)}
   button{font:inherit;color:inherit;border:0;background:var(--panel2);border-radius:12px;cursor:pointer}
-  button:active{background:#3a414b}
+  button:active{background:#262b32}
   svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
-  header{display:flex;align-items:center;gap:8px;padding:10px 2px}
+  header{display:flex;align-items:center;gap:8px;padding:min(10px,1.2vh) 2px;flex:none}
   .status{flex:1;display:flex;align-items:center;gap:8px;min-width:0}
   .dot{width:10px;height:10px;border-radius:50%;background:var(--warn);flex:none}
-  .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .dot.on{background:#2fa874;box-shadow:0 0 6px #2fa87488}
   #statusText{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dim)}
-  header button{padding:9px 14px}
-  #connectBtn{background:var(--accent);color:#fff;font-weight:600}
+  header button{padding:min(9px,1vh) 14px}
+  #connectBtn{background:var(--accent);color:#e3e9f2;font-weight:600}
   .icon-btn{padding:9px 10px;display:grid;place-items:center}
 
 
   #pad{flex:1;min-height:160px;position:relative;border-radius:18px;
-    background:radial-gradient(circle at 50% 40%,#262b33,#1b1f25);
+    background:radial-gradient(circle at 50% 40%,#101317,#0a0c0e);
     border:1px solid var(--line);touch-action:none;overflow:hidden}
   #pad::before{content:"";position:absolute;inset:0;opacity:.35;
-    background-image:radial-gradient(#4a525e 1px,transparent 1px);background-size:22px 22px}
-  body:has(#kbd.show) #pad{flex:0 0 18vh;min-height:110px}
-  body:has(#kbd.show) #kbd{flex:1;display:flex;flex-direction:column;justify-content:center}
+    background-image:radial-gradient(#2a3038 1px,transparent 1px);background-size:22px 22px}
+  body:has(#kbd.show) #pad{flex:0 1 17vh;min-height:70px}
+  body:has(#kbd.show) #kbd{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:center}
   #hint{position:absolute;left:0;right:0;bottom:14px;text-align:center;color:var(--dim);
     font-size:12px;pointer-events:none;padding:0 14px;transition:opacity .4s}
   #touchDot{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;
     background:rgba(79,156,255,.18);border:1px solid rgba(79,156,255,.5);pointer-events:none;
     opacity:0;transition:opacity .15s}
 
-  .row{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:8px}
-  .row button{height:52px;display:grid;place-items:center}
-  .row button.active{background:var(--accent);color:#fff}
-  .row.small button{height:40px;font-size:12px;color:var(--dim)}
+  .row{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:min(8px,1vh);flex:none}
+  .row button{height:min(52px,6.2vh);display:grid;place-items:center}
+  .row button.active{background:var(--accent);color:#e3e9f2}
+  .row.small button{height:min(40px,5vh);font-size:12px;color:var(--dim)}
 
-  #kbd{display:none;margin-top:8px;background:var(--panel);border:1px solid var(--line);
-    border-radius:16px;padding:10px}
+  #kbd{display:none;margin-top:min(8px,1vh);background:var(--panel);border:1px solid var(--line);
+    border-radius:16px;padding:min(10px,1.2vh) 10px}
   #kbd.show{display:block}
   .kline{display:flex;gap:8px}
   #typeBox{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);color:var(--text);
-    border-radius:10px;padding:11px 12px;font:inherit;outline:none;user-select:text;-webkit-user-select:text}
+    border-radius:10px;padding:min(11px,1.2vh) 12px;font:inherit;outline:none;user-select:text;-webkit-user-select:text}
   #typeBox:focus{border-color:var(--accent)}
-  .kline button{padding:0 14px;height:44px}
-  .dpad{display:grid;grid-template-columns:repeat(3,104px);grid-template-rows:repeat(3,84px);
-    gap:8px;justify-content:center;margin-top:12px}
+  .kline button{padding:0 14px;height:min(44px,5.5vh)}
+  .dpad{display:grid;grid-template-columns:repeat(3,min(104px,12vh));grid-template-rows:repeat(3,min(84px,9.5vh));
+    gap:min(8px,1vh);justify-content:center;margin-top:min(12px,1.4vh)}
   .dpad button{display:grid;place-items:center;border-radius:16px}
   .dpad svg{width:38px;height:38px;stroke-width:2.4}
-  .dpad .ok{background:var(--accent);color:#fff;font-weight:700;font-size:20px}
-  .extra{display:flex;gap:6px;justify-content:center;margin-top:48px;flex-wrap:wrap}
-  .extra button{padding:9px 12px;font-size:13px;color:var(--dim)}
+  .dpad .ok{background:var(--accent);color:#e3e9f2;font-weight:700;font-size:20px}
+  .extra{display:flex;gap:6px;justify-content:center;margin-top:min(48px,4.5vh);flex-wrap:wrap}
+  .extra button{padding:min(9px,1vh) 12px;font-size:13px;color:var(--dim)}
 
   #sheet{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-end;z-index:5}
   #sheet.show{display:flex}
@@ -128,10 +128,10 @@
   <div class="extra">
     <button data-kc="62">Space</button>
     <button data-kc="61">Tab</button>
-    <button data-kc="89">⏪ Rew</button>
-    <button data-kc="90">Fwd ⏩</button>
-    <button data-kc="88">⏮ Prev</button>
-    <button data-kc="87">Next ⏭</button>
+    <button data-kc="89">« Rew</button>
+    <button data-kc="90">Fwd »</button>
+    <button data-kc="88">|◂ Prev</button>
+    <button data-kc="87">Next ▸|</button>
     <button id="clearBox">Clear box</button>
   </div>
 </div>
@@ -146,7 +146,7 @@
   <button id="kbdBtn" aria-label="Keyboard"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></button>
 </div>
 <div class="row small" style="grid-template-columns:repeat(5,1fr)">
-  <button data-kc="26">⏻ Power</button>
+  <button data-kc="26">Power</button>
   <button data-kc="176">Settings</button>
   <button data-kc="84">Search</button>
   <button data-kc="284">Apps</button>
