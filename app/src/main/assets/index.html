@@ -108,7 +108,7 @@
 
 <div id="pad">
   <div id="touchDot"></div>
-  <div id="hint">Swipe to move · Tap = OK · Long-press = hold OK · Two-finger tap = Back</div>
+  <div id="hint">Tap to show the cursor · Slide to move · Tap = click · Hold = long-press · Two fingers = scroll · Two-finger tap = Back</div>
 </div>
 
 <div id="kbd">
@@ -156,7 +156,7 @@
 <div id="sheet">
   <div class="sheet-in">
     <h2>Settings</h2>
-    <div class="set"><label>Swipe step size<small>How far to swipe for each move on the TV</small></label><input type="range" id="step" min="20" max="120" step="5"></div>
+    <div class="set"><label>Cursor speed</label><input type="range" id="speed" min="0.5" max="4" step="0.1"></div>
     <div class="set"><label>Vibrate on press</label><input type="checkbox" id="haptic"></div>
     <div class="set"><label>Show over lock screen<small>Use the remote without unlocking</small></label><input type="checkbox" id="onLock"></div>
     <div class="set"><label>Dim when idle<small>Darker screen to save battery</small></label>
@@ -183,13 +183,13 @@
   const has = fn => bridge && typeof bridge[fn] === 'function';
 
   /* ---------- settings ---------- */
-  const defaults = {step:45, haptic:true, onLock:true, dimAfter:60, dimLevel:0.3, dimUsable:true, awakeFor:60,
+  const defaults = {speed:1.6, haptic:true, onLock:true, dimAfter:60, dimLevel:0.3, dimUsable:true, awakeFor:60,
                     kbdOpen:true};   // layout: swipe remote + keyboard panel open
   let cfg = {...defaults};
   try { Object.assign(cfg, JSON.parse(localStorage.getItem('tvpad-wifi') || '{}')); } catch(e){}
   const save = () => { try { localStorage.setItem('tvpad-wifi', JSON.stringify(cfg)); } catch(e){} };
   const onCfg = {};
-  ['step','dimLevel','dimAfter','awakeFor'].forEach(k => {
+  ['speed','dimLevel','dimAfter','awakeFor'].forEach(k => {
     $(k).value = cfg[k];
     $(k).oninput = $(k).onchange = e => { cfg[k] = +e.target.value; save(); onCfg[k] && onCfg[k](); };
   });
@@ -229,11 +229,24 @@
 
   const pad = $('pad'), dot = $('touchDot');
 
-  /* ---------- touch handling ---------- */
+  /* ---------- trackpad: moves a cursor on the TV ---------- */
+  // First tap shows the cursor; after that: move = point, tap = click, hold = long-press,
+  // two fingers = scroll, two-finger tap = Back. The cursor hides after 30 s idle (same as the TV).
   const pts = new Map();
-  let downAt = 0, startX = 0, startY = 0, lastX = 0, lastY = 0, moved = 0, maxPts = 0;
-  let accX = 0, accY = 0, holdT = null, held = false;
-  const TAP_MS = 250, TAP_MOVE = 14, HOLD_MS = 550;
+  let downAt = 0, moved = 0, maxPts = 0, holdT = null, held = false;
+  let accX = 0, accY = 0, scX = 0, scY = 0, flushReq = false;
+  let cursorOn = false, cursorT = null;
+  const TAP_MS = 250, TAP_MOVE = 12, HOLD_MS = 600, CURSOR_IDLE = 29000, SCROLL_STEP = 24;
+
+  function mouse(c){ if (bridge && bridge.mouse) bridge.mouse(c); }
+  function cursorAlive(){ cursorOn = true; clearTimeout(cursorT); cursorT = setTimeout(() => cursorOn = false, CURSOR_IDLE); }
+  function hideCursor(){ if (cursorOn){ mouse('H'); cursorOn = false; clearTimeout(cursorT); } }
+
+  function flushMove(){
+    flushReq = false;
+    const ix = Math.trunc(accX), iy = Math.trunc(accY);
+    if (ix || iy){ accX -= ix; accY -= iy; mouse('M ' + ix + ' ' + iy); cursorAlive(); }
+  }
 
   pad.addEventListener('pointerdown', e => {
     e.preventDefault();
@@ -241,15 +254,13 @@
     pts.set(e.pointerId, {x:e.clientX, y:e.clientY});
     $('hint').style.opacity = 0;
     if (pts.size === 1){
-      downAt = performance.now(); moved = 0; maxPts = 1; accX = accY = 0; held = false;
-      startX = lastX = e.clientX; startY = lastY = e.clientY;
+      downAt = performance.now(); moved = 0; maxPts = 1; held = false; scX = scY = 0;
       const r = pad.getBoundingClientRect();
       dot.style.left = (e.clientX - r.left)+'px'; dot.style.top = (e.clientY - r.top)+'px'; dot.style.opacity = 1;
       clearTimeout(holdT);
       holdT = setTimeout(() => {
-        if (moved > TAP_MOVE || pts.size !== 1) return;
-        held = true; buzz();
-        if (has('longKey')) bridge.longKey(KEY.OK);
+        if (moved > TAP_MOVE || pts.size !== 1 || !cursorOn) return;
+        held = true; buzz(); mouse('L'); cursorAlive();
       }, HOLD_MS);
     } else {
       maxPts = Math.max(maxPts, pts.size);
@@ -262,17 +273,21 @@
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     p.x = e.clientX; p.y = e.clientY;
     moved += Math.abs(dx) + Math.abs(dy);
-    if (pts.size !== 1) return;
-    lastX = e.clientX; lastY = e.clientY;
-    const r = pad.getBoundingClientRect();
-    dot.style.left = (e.clientX - r.left)+'px'; dot.style.top = (e.clientY - r.top)+'px';
     if (held) return;
-    // swipe remote: every `step` px of travel = one arrow press
-    accX += dx; accY += dy;
-    while (Math.abs(accX) >= cfg.step || Math.abs(accY) >= cfg.step){
-      if (Math.abs(accX) >= Math.abs(accY)){ const s = Math.sign(accX); key(s > 0 ? KEY.RIGHT : KEY.LEFT); accX -= s * cfg.step; accY *= 0.5; }
-      else { const s = Math.sign(accY); key(s > 0 ? KEY.DOWN : KEY.UP); accY -= s * cfg.step; accX *= 0.5; }
-      buzz();
+    if (pts.size === 1){
+      const r = pad.getBoundingClientRect();
+      dot.style.left = (e.clientX - r.left)+'px'; dot.style.top = (e.clientY - r.top)+'px';
+      const speed = Math.hypot(dx, dy);
+      const f = cfg.speed * (1 + 0.9 * Math.min(speed, 40) / 10);   // gentle acceleration
+      accX += dx * f; accY += dy * f;
+      if (!flushReq){ flushReq = true; requestAnimationFrame(flushMove); }
+    } else if (pts.size === 2){
+      // two-finger drag scrolls the page under the cursor (each finger reports, so halve)
+      scX += dx * 0.5; scY += dy * 0.5;
+      if (Math.abs(scX) >= SCROLL_STEP || Math.abs(scY) >= SCROLL_STEP){
+        if (cursorOn){ mouse('S ' + Math.round(scX * 6) + ' ' + Math.round(scY * 6)); cursorAlive(); }
+        scX = scY = 0;
+      }
     }
   });
 
@@ -283,16 +298,23 @@
     clearTimeout(holdT);
     dot.style.opacity = 0;
     if (held) return;
-    const dur = performance.now() - downAt, quick = dur < TAP_MS;
+    const quick = performance.now() - downAt < TAP_MS;
     if (maxPts >= 2){
       if (quick && moved < TAP_MOVE * maxPts){ key(KEY.BACK); buzz(); }
       return;
     }
-    if (quick && moved < TAP_MOVE){ key(KEY.OK); buzz(); }
+    if (quick && moved < TAP_MOVE){
+      buzz();
+      if (!cursorOn){ mouse('V'); cursorAlive(); toast('Cursor on'); }
+      else { mouse('C'); cursorAlive(); }
+    }
   }
   pad.addEventListener('pointerup', endPointer);
   pad.addEventListener('pointercancel', endPointer);
   pad.addEventListener('contextmenu', e => e.preventDefault());
+
+  // using the remote buttons hides the cursor so normal highlight navigation takes over
+  document.querySelectorAll('[data-kc]').forEach(b => b.addEventListener('click', hideCursor));
 
   /* ---------- keyboard ---------- */
   const box = $('typeBox');

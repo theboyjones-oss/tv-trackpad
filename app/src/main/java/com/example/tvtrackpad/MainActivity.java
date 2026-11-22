@@ -52,6 +52,14 @@ public class MainActivity extends Activity {
 
     private static final int ADB_PORT = 5555;
 
+    // TV-side cursor helper (tvhelper module, bundled as assets/tvhelper.apk)
+    private static final String HELPER_PKG = "com.example.tvtrackpad.tvhelper";
+    private static final String HELPER_SVC = HELPER_PKG + "/" + HELPER_PKG + ".CursorService";
+    private static final int HELPER_VERSION = 1, CURSOR_PORT = 38999;
+    private volatile AdbConnection.Stream cursor;
+    private final LinkedBlockingQueue<String> mouseCmds = new LinkedBlockingQueue<>();
+    private Thread mouseThread;
+
     private WebView web;
     private SharedPreferences prefs;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -174,6 +182,7 @@ public class MainActivity extends Activity {
     private void onLost(String ip) {
         conn = null;
         shell = null;
+        cursor = null;
         if (userDisconnect) { status("Disconnected – tap Connect", false); return; }
         status("Connection lost – reconnecting…", false);
         ui.postDelayed(() -> { if (conn == null && !userDisconnect) connect(ip, false); }, 1500);
@@ -184,7 +193,9 @@ public class MainActivity extends Activity {
         AdbConnection c = conn;
         conn = null;
         shell = null;
+        cursor = null;
         cmds.clear();
+        mouseCmds.clear();
         if (c != null) c.close();
     }
 
@@ -349,12 +360,142 @@ public class MainActivity extends Activity {
         cmds.add(c);
     }
 
+    // ------------------------------------------------------------ on-screen cursor
+
+    private static final java.util.regex.Pattern MOUSE_CMD =
+        java.util.regex.Pattern.compile("^[MVHCLS]( -?\\d{1,5}){0,2}$");
+
+    private void mouse(String c) {
+        if (conn == null) {
+            status(connecting ? "Still connecting…" : "Not connected – tap Connect", false);
+            return;
+        }
+        if (!MOUSE_CMD.matcher(c).matches()) return;
+        mouseCmds.add(c);
+        startMouseThread();
+    }
+
+    /** Sends cursor commands to the TV helper; consecutive moves are merged so the cursor never lags. */
+    private synchronized void startMouseThread() {
+        if (mouseThread != null && mouseThread.isAlive()) return;
+        mouseThread = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    String c = mouseCmds.take();
+                    if (c.startsWith("M ")) {
+                        int dx = 0, dy = 0;
+                        String nx = c;
+                        do {
+                            if (nx != c) mouseCmds.poll();
+                            String[] p = nx.split(" ");
+                            dx += Integer.parseInt(p[1]);
+                            dy += Integer.parseInt(p[2]);
+                        } while ((nx = mouseCmds.peek()) != null && nx.startsWith("M "));
+                        if (dx == 0 && dy == 0) continue;
+                        c = "M " + dx + " " + dy;
+                    }
+                    AdbConnection.Stream s = cursorStream();
+                    if (s == null) { mouseCmds.clear(); continue; }
+                    try {
+                        s.write(c + "\n");
+                    } catch (Exception e) {
+                        log("cursor write failed: " + e);
+                        cursor = null;
+                    }
+                } catch (InterruptedException e) {
+                    return;
+                } catch (Exception e) {
+                    log("mouse thread: " + e);
+                }
+            }
+        }, "tv-mouse");
+        mouseThread.setDaemon(true);
+        mouseThread.start();
+    }
+
+    /** Link to the helper's socket on the TV; installs and enables the helper the first time. */
+    private AdbConnection.Stream cursorStream() {
+        AdbConnection.Stream s = cursor;
+        if (s != null && !s.closed) return s;
+        AdbConnection c = conn;
+        if (c == null) return null;
+        try {
+            s = openCursor(c, 1);
+            if (s == null) {
+                installHelperIfNeeded(c);
+                enableHelper(c);
+                status("Starting the cursor on the TV…", true);
+                s = openCursor(c, 16);
+            }
+            if (s == null) {
+                status("The TV didn't start the cursor helper – see Settings › Share log", true);
+                return null;
+            }
+            s.discard = true;
+            cursor = s;
+            status("Connected to " + tvName + " – cursor ready", true);
+            return s;
+        } catch (Exception e) {
+            log("cursor setup failed: " + e);
+            status("Cursor setup failed: " + e.getMessage(), conn != null);
+            return null;
+        }
+    }
+
+    private AdbConnection.Stream openCursor(AdbConnection c, int tries) throws InterruptedException {
+        for (int i = 0; i < tries; i++) {
+            try {
+                return c.open("tcp:" + CURSOR_PORT);
+            } catch (java.io.IOException e) {
+                if (i + 1 < tries) Thread.sleep(500);
+            }
+        }
+        return null;
+    }
+
+    private void installHelperIfNeeded(AdbConnection c) throws Exception {
+        String have = new String(c.exec("pm list packages --show-versioncode " + HELPER_PKG));
+        log("helper on TV: " + have.trim());
+        if (have.contains("package:" + HELPER_PKG + " versionCode:" + HELPER_VERSION)) return;
+        status("Installing the cursor helper on the TV…", true);
+        byte[] apk = readAsset("tvhelper.apk");
+        AdbConnection.Stream s = c.open("exec:cmd package install -r -S " + apk.length);
+        s.write(apk);
+        String res = new String(s.readAll(90000)).trim();
+        log("install: " + res);
+        if (!res.contains("Success")) throw new java.io.IOException("TV wouldn't install it (" + res + ")");
+    }
+
+    private void enableHelper(AdbConnection c) throws Exception {
+        String cur = new String(c.exec("settings get secure enabled_accessibility_services")).trim();
+        if (cur.equals("null")) cur = "";
+        log("accessibility services: " + cur);
+        if (!cur.contains(HELPER_PKG + "/")) {
+            String v = cur.isEmpty() ? HELPER_SVC : cur + ":" + HELPER_SVC;
+            c.exec("settings put secure enabled_accessibility_services " + v);
+        }
+        c.exec("settings put secure accessibility_enabled 1");
+    }
+
+    private byte[] readAsset(String name) throws java.io.IOException {
+        try (java.io.InputStream in = getAssets().open(name)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return out.toByteArray();
+        }
+    }
+
     private static String shellQuote(String s) { return "'" + s.replace("'", "'\\''") + "'"; }
 
     // ------------------------------------------------------------ JavaScript bridge
 
     private class Bridge {
         @JavascriptInterface public void key(int keycode) { cmd("K:" + keycode); }
+
+        /** Cursor commands: "M dx dy", "V", "H", "C", "L", "S dx dy". */
+        @JavascriptInterface public void mouse(String c) { MainActivity.this.mouse(c); }
 
         @JavascriptInterface public void longKey(int keycode) { cmd("input keyevent --longpress " + keycode); }
 

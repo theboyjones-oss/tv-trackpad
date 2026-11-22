@@ -26,3 +26,9 @@ and it installs over the previous version.
 - UI: `app/src/main/assets/index.html`
 - Connection and commands: `MainActivity.java`
 - ADB protocol client: `AdbConnection.java`, key handling: `AdbKeys.java`
+
+## On-screen cursor
+The top box is a trackpad. The first tap installs (once) and starts a small helper on the TV
+(`tvhelper/`, an accessibility service), then shows a mouse cursor. Slide to move, tap to click,
+hold to long-press, two fingers to scroll, two-finger tap = Back. Pressing any remote button hides
+the cursor. The helper is built by CI and bundled into the phone app as `assets/tvhelper.apk`.

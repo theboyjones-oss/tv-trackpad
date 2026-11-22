@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="service_desc">Shows a mouse cursor controlled from the TV Trackpad phone app, and clicks where it points.</string>
+</resources>
